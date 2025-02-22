@@ -3,21 +3,35 @@ const db = require("../config/db");
 const { OpenAI } = require("openai");
 
 const router = express.Router();
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Submit Leave Request
+// Ensure API key exists before initializing OpenAI to prevent runtime errors
+const openaiApiKey = process.env.OPENAI_API_KEY;
+
+const openai = openaiApiKey ? new OpenAI({ apiKey: openaiApiKey }) : null;
+
 router.post("/request", async (req, res) => {
     const { user_id, reason } = req.body;
 
-    // AI Analysis
-    const response = await openai.completions.create({
-        model: "gpt-4",
-        prompt: `Evaluate this leave request reason: "${reason}". Approve if it's a valid reason like medical, family emergency, training. Reply "Approved" or "Rejected".`,
-        max_tokens: 10,
-    });
+    let status = "pending";  // Default status if OpenAI API is unavailable
+    let decision = "Pending";
 
-    const decision = response.choices[0].text.trim();
-    const status = decision === "Approved" ? "approved" : "rejected";
+    if (openai) {
+        try {
+            // AI Analysis
+            const response = await openai.completions.create({
+                model: "gpt-4",
+                prompt: `Evaluate this leave request reason: "${reason}". Approve if it's a valid reason like medical, family emergency, training. Reply "Approved" or "Rejected".`,
+                max_tokens: 10,
+            });
+
+            decision = response.choices[0].text.trim();
+            status = decision === "Approved" ? "approved" : "rejected";
+        } catch (error) {
+            console.error("OpenAI API Error:", error.message);
+        }
+    } else {
+        console.warn("OpenAI API Key is missing. Defaulting to pending.");
+    }
 
     const sql = "INSERT INTO leave_requests (user_id, reason, status, decision_by_gpt) VALUES (?, ?, ?, ?)";
     db.query(sql, [user_id, reason, status, decision], (err, result) => {
@@ -26,7 +40,6 @@ router.post("/request", async (req, res) => {
     });
 });
 
-// Get All Leave Requests
 router.get("/all", (req, res) => {
     const sql = "SELECT * FROM leave_requests";
     db.query(sql, (err, results) => {
@@ -35,7 +48,6 @@ router.get("/all", (req, res) => {
     });
 });
 
-// Admin Override
 router.put("/override", (req, res) => {
     const { id, admin_override } = req.body;
     const sql = "UPDATE leave_requests SET admin_override = ? WHERE id = ?";
