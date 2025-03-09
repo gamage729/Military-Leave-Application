@@ -1,74 +1,101 @@
 const express = require("express");
-const bcrypt = require("bcryptjs"); // Library for hashing passwords
-const jwt = require("jsonwebtoken"); // Library for generating JWT tokens
-const db = require("../config/db"); // Database connection
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const db = require("../config/db");
 
 const router = express.Router();
 
+let refreshTokens = []; // Store refresh tokens (use DB in production)
 
 // Register a New User
 
 router.post("/register", async (req, res) => {
     const { name, rank, role, email, password } = req.body;
 
-    // Validate required fields
     if (!name || !rank || !role || !email || !password) {
         return res.status(400).json({ error: "All fields are required" });
     }
 
     try {
-        // Hash the password before storing it in the database
         const hashedPassword = await bcrypt.hash(password, 10);
-
-        // SQL query to insert a new user into the database
         const sql = "INSERT INTO users (name, rank, role, email, password) VALUES (?, ?, ?, ?, ?)";
+        
         db.query(sql, [name, rank, role, email, hashedPassword], (err, result) => {
-            if (err) return res.status(500).json(err); // Handle database errors
-            res.json({ message: "User registered successfully!" }); // Success response
+            if (err) return res.status(500).json({ error: "Database error", details: err });
+            res.json({ message: "User registered successfully!" });
         });
     } catch (error) {
-        res.status(500).json({ error: "Server error" });
+        res.status(500).json({ error: "Server error", details: error.message });
     }
 });
 
-// ==========================
+
 // User Login
-// ==========================
+
 router.post("/login", (req, res) => {
     const { email, password } = req.body;
 
-    // Validate required fields
     if (!email || !password) {
         return res.status(400).json({ error: "Email and password are required" });
     }
 
-    // SQL query to find the user by email
     const sql = "SELECT * FROM users WHERE email = ?";
     db.query(sql, [email], async (err, results) => {
-        if (err) return res.status(500).json(err); // Handle database errors
+        if (err) return res.status(500).json({ error: "Database error", details: err });
 
-        // Check if user exists
         if (results.length === 0) {
             return res.status(401).json({ error: "User not found" });
         }
 
-        const user = results[0]; // Extract user data from the query result
-
-        // Compare the provided password with the hashed password in the database
+        const user = results[0];
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
-            return res.status(401).json({ error: "Invalid credentials" }); // Invalid password
+            return res.status(401).json({ error: "Invalid credentials" });
         }
 
-        // Generate a JWT token for authentication
-        const token = jwt.sign(
-            { id: user.id, role: user.role }, // Payload (user ID and role)
-            process.env.JWT_SECRET, // Secret key stored in environment variables
-            { expiresIn: "1h" } // Token expiration time
-        );
+        // Generate Access & Refresh Tokens
+        const accessToken = generateAccessToken(user);
+        const refreshToken = jwt.sign({ id: user.id }, process.env.REFRESH_TOKEN_SECRET);
+        refreshTokens.push(refreshToken);
 
-        res.json({ token, user }); // Send token and user data in response
+        res.json({ accessToken, refreshToken, user });
     });
 });
 
-module.exports = router; // Export the router for use in other files
+
+// Generate Access Token
+
+function generateAccessToken(user) {
+    return jwt.sign(
+        { id: user.id, role: user.role },
+        process.env.ACCESS_TOKEN_SECRET,
+        { expiresIn: "15m" }
+    );
+}
+
+
+// Refresh Token Route
+
+router.post("/refresh", (req, res) => {
+    const { token } = req.body;
+    if (!token) return res.status(401).json({ error: "No token provided" });
+    if (!refreshTokens.includes(token)) return res.status(403).json({ error: "Invalid refresh token" });
+
+    jwt.verify(token, process.env.REFRESH_TOKEN_SECRET, (err, user) => {
+        if (err) return res.status(403).json({ error: "Invalid refresh token" });
+
+        const newAccessToken = generateAccessToken(user);
+        res.json({ accessToken: newAccessToken });
+    });
+});
+
+
+// Logout Route
+
+router.post("/logout", (req, res) => {
+    const { token } = req.body;
+    refreshTokens = refreshTokens.filter(t => t !== token);
+    res.json({ message: "Logged out successfully" });
+});
+
+module.exports = router;
