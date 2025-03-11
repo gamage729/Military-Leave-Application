@@ -25,7 +25,16 @@ app.get("/", (req, res) => res.send("Military Leave System API Running"));
 
 // Routes
 app.use("/auth", require("./routes/auth"));
-app.use("/leave", authenticateToken, require("./routes/leave")); // Secure leave routes
+
+app.use("/leave",require("./routes/leave")); // Secure leave routes
+
+// After defining routes, log them
+console.log("Registered Routes:");
+app._router.stack.forEach((middleware) => {
+  if (middleware.route) {
+    console.log(middleware.route.path);
+  }
+});
 app.use("/token", require("./routes/token")); // Refresh token route
 
 // Start Server

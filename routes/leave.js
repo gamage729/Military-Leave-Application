@@ -1,35 +1,49 @@
 const express = require("express");
 const db = require("../config/db");
 const { authenticateToken, authorizeRoles } = require("../middleware/auth");
+const { handleLeaveRequest } = require("../src/controllers/leaveController");
+const { getAIResponse } = require("../src/services/deepseek");
+
 
 const router = express.Router();
 
 
-// Soldier Request Leave
-
-router.post("/request", authenticateToken, authorizeRoles("soldier"), async (req, res) => {
-    const { user_id, reason } = req.body;
-
-    if (!user_id || !reason) {
-        return res.status(400).json({ error: "User ID and reason are required." });
-    }
-
-    const status = "pending";  // Default status (without OpenAI)
-    const decision_by_gpt = "Pending"; // Placeholder since AI is disabled
-
-    const sql = "INSERT INTO leave_requests (user_id, reason, status, decision_by_gpt) VALUES (?, ?, ?, ?)";
-    db.query(sql, [user_id, reason, status, decision_by_gpt], (err, result) => {
-        if (err) {
-            console.error("Database Error:", err);
-            return res.status(500).json({ error: "Database error." });
+// AI Leave Analysis Route (No authentication required)
+router.post("/analyze", async (req, res) => {
+    try {
+        const { reason } = req.body;
+        if (!reason) {
+            return res.status(400).json({ error: "Leave reason is required." });
         }
-        res.json({ message: "Leave request submitted", status });
-    });
+  
+        const aiResponse = await getAIResponse(reason);
+        res.json({ suggestion: aiResponse });
+    } catch (error) {
+        console.error("AI Processing Error:", error);
+        res.status(500).json({ error: "Failed to analyze leave request." });
+    }
 });
 
 
-//  Admin: Get All Leave Requests
+// AI Leave Analysis Route (Fix for 404 error)
+// AI Leave Analysis Route with authentication
+router.post("/analyze", authenticateToken, async (req, res) => {
+    try {
+        const { reason } = req.body;
+        if (!reason) {
+            return res.status(400).json({ error: "Leave reason is required." });
+        }
+  
+        const aiResponse = await getAIResponse(reason);
+        res.json({ suggestion: aiResponse });
+    } catch (error) {
+        console.error("AI Processing Error:", error);
+        res.status(500).json({ error: "Failed to analyze leave request." });
+    }
+});
 
+  
+// Admin: Get All Leave Requests
 router.get("/all", authenticateToken, authorizeRoles("admin"), (req, res) => {
     const sql = "SELECT * FROM leave_requests";
     db.query(sql, (err, results) => {
@@ -41,9 +55,7 @@ router.get("/all", authenticateToken, authorizeRoles("admin"), (req, res) => {
     });
 });
 
-
-//Admin Override Leave Decision
-
+// Admin Override Leave Decision
 router.put("/override", authenticateToken, authorizeRoles("admin"), (req, res) => {
     const { id, admin_override } = req.body;
 
