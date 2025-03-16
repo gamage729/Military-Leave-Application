@@ -2,36 +2,46 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const db = require("../config/db");
+const { validateRegistration } = require("../middleware/validation"); // Import validation middleware
 
 const router = express.Router();
 
 let refreshTokens = []; // Store refresh tokens (use DB in production)
 
 // Register a New User
-
-router.post("/register", async (req, res) => {
+router.post("/register", validateRegistration, async (req, res) => {
     const { name, rank, role, email, password } = req.body;
 
-    if (!name || !rank || !role || !email || !password) {
-        return res.status(400).json({ error: "All fields are required" });
-    }
-
     try {
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const sql = "INSERT INTO users (name, rank, role, email, password) VALUES (?, ?, ?, ?, ?)";
-        
-        db.query(sql, [name, rank, role, email, hashedPassword], (err, result) => {
+        // Check if the email already exists
+        db.query("SELECT * FROM users WHERE email = ?", [email], async (err, results) => {
             if (err) return res.status(500).json({ error: "Database error", details: err });
-            res.json({ message: "User registered successfully!" });
+            if (results.length > 0) {
+                return res.status(400).json({ error: "Email already in use" });
+            }
+
+            // Validate password strength before continuing with the registration
+            const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+            if (!password.match(passwordRegex)) {
+                return res.status(400).json({
+                    error: "Password must be at least 8 characters, include 1 uppercase, 1 lowercase, 1 number, and 1 special character."
+                });
+            }
+
+            const hashedPassword = await bcrypt.hash(password, 10);
+            const sql = "INSERT INTO users (name, rank, role, email, password) VALUES (?, ?, ?, ?, ?)";
+
+            db.query(sql, [name, rank, role, email, hashedPassword], (err, result) => {
+                if (err) return res.status(500).json({ error: "Database error", details: err });
+                res.json({ message: "User registered successfully!" });
+            });
         });
     } catch (error) {
         res.status(500).json({ error: "Server error", details: error.message });
     }
 });
 
-
 // User Login
-
 router.post("/login", (req, res) => {
     const { email, password } = req.body;
 
@@ -62,9 +72,7 @@ router.post("/login", (req, res) => {
     });
 });
 
-
 // Generate Access Token
-
 function generateAccessToken(user) {
     return jwt.sign(
         { id: user.id, role: user.role },
@@ -73,9 +81,7 @@ function generateAccessToken(user) {
     );
 }
 
-
 // Refresh Token Route
-
 router.post("/refresh", (req, res) => {
     const { token } = req.body;
     if (!token) return res.status(401).json({ error: "No token provided" });
@@ -89,9 +95,7 @@ router.post("/refresh", (req, res) => {
     });
 });
 
-
 // Logout Route
-
 router.post("/logout", (req, res) => {
     const { token } = req.body;
     refreshTokens = refreshTokens.filter(t => t !== token);

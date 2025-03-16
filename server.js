@@ -8,13 +8,15 @@ const securityMiddleware = require("./middleware/security");
 
 const app = express();
 
-// Security & Middleware
-securityMiddleware(app); // Apply security features
+// Apply security middleware
+securityMiddleware(app);
+
+// Middleware setup
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(cors());
 
-// Ensure JWT secrets are loaded
+// Ensure required environment variables exist
 if (!process.env.ACCESS_TOKEN_SECRET || !process.env.REFRESH_TOKEN_SECRET) {
   console.error("ERROR: JWT secrets are missing in .env file!");
   process.exit(1);
@@ -25,17 +27,22 @@ app.get("/", (req, res) => res.send("Military Leave System API Running"));
 
 // Routes
 app.use("/auth", require("./routes/auth"));
+app.use("/leave", require("./routes/leave")); // Secure leave routes
+app.use("/token", require("./routes/token")); // Refresh token route
 
-app.use("/leave",require("./routes/leave")); // Secure leave routes
-
-// After defining routes, log them
+// Logging registered routes
 console.log("Registered Routes:");
 app._router.stack.forEach((middleware) => {
   if (middleware.route) {
-    console.log(middleware.route.path);
+    console.log(`Route: ${middleware.route.path}`);
   }
 });
-app.use("/token", require("./routes/token")); // Refresh token route
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: "Internal Server Error" });
+});
 
 // Start Server
 const PORT = process.env.PORT || 5000;
