@@ -1,26 +1,55 @@
 import React, { useState } from "react";
-import { submitLeave } from "../services/api";
+import axios from "axios";
+import "../styles/LeaveStyles.css";
 
 const LeaveRequest = () => {
-  const [reason, setReason] = useState("");
+  const [input, setInput] = useState("");
+  const [chat, setChat] = useState([]);
   const token = localStorage.getItem("token");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!input.trim()) return;
+
+    const userMessage = { role: "user", content: input };
+    setChat([...chat, userMessage]); // Update UI immediately
+
     try {
-      await submitLeave({ user_id: 1, reason }, token);
-      alert("Leave request submitted!");
+      const response = await axios.post(
+        "http://localhost:5000/leave/analyze",
+        { reason: input },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      const aiMessage = { role: "assistant", content: response.data.suggestion };
+      setChat([...chat, userMessage, aiMessage]); // Append AI response
+      setInput(""); // Clear input field
     } catch (error) {
-      alert("Error submitting request!");
+      alert("Error submitting request: " + error.message);
     }
   };
 
   return (
-    <div>
-      <h2>Request Leave</h2>
-      <form onSubmit={handleSubmit}>
-        <textarea placeholder="Reason for leave" onChange={(e) => setReason(e.target.value)} required></textarea>
-        <button type="submit">Submit</button>
+    <div className="chat-container">
+      <h2 className="chat-title">Leave Request Chat</h2>
+      <div className="chat-box">
+        {chat.map((msg, index) => (
+          <div key={index} className={msg.role === "user" ? "user-message" : "ai-message"}>
+            <p>{msg.content}</p>
+          </div>
+        ))}
+      </div>
+      <form onSubmit={handleSubmit} className="chat-form">
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Enter reason or ask a follow-up question..."
+          className="chat-input"
+        />
+        <button type="submit" className="chat-button">Send</button>
       </form>
     </div>
   );
