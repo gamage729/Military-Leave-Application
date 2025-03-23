@@ -4,9 +4,9 @@ const { authenticateToken, authorizeRoles } = require("../middleware/auth");
 const { handleLeaveRequest } = require("../src/controllers/leaveController");
 const { getAIResponse } = require("../src/services/deepseek");
 
-
 const router = express.Router();
 
+const conversationHistory = []; // Store conversation context
 
 // AI Leave Analysis Route (No authentication required)
 router.post("/analyze", async (req, res) => {
@@ -16,7 +16,15 @@ router.post("/analyze", async (req, res) => {
             return res.status(400).json({ error: "Leave reason is required." });
         }
   
-        const aiResponse = await getAIResponse(reason);
+        // Store user message in conversation history
+        conversationHistory.push({ role: "user", content: reason });
+  
+        // Get AI military-specific response
+        const aiResponse = await getAIResponse(reason, conversationHistory);
+  
+        // Store AI response for conversation tracking
+        conversationHistory.push({ role: "assistant", content: aiResponse });
+  
         res.json({ suggestion: aiResponse });
     } catch (error) {
         console.error("AI Processing Error:", error);
@@ -24,25 +32,6 @@ router.post("/analyze", async (req, res) => {
     }
 });
 
-
-// AI Leave Analysis Route (Fix for 404 error)
-// AI Leave Analysis Route with authentication
-router.post("/analyze", authenticateToken, async (req, res) => {
-    try {
-        const { reason } = req.body;
-        if (!reason) {
-            return res.status(400).json({ error: "Leave reason is required." });
-        }
-  
-        const aiResponse = await getAIResponse(reason);
-        res.json({ suggestion: aiResponse });
-    } catch (error) {
-        console.error("AI Processing Error:", error);
-        res.status(500).json({ error: "Failed to analyze leave request." });
-    }
-});
-
-  
 // Admin: Get All Leave Requests
 router.get("/all", authenticateToken, authorizeRoles("admin"), (req, res) => {
     const sql = "SELECT * FROM leave_requests";

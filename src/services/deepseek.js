@@ -1,57 +1,32 @@
 const axios = require("axios");
-require("dotenv").config(); // Load API key from .env file
+require("dotenv").config();
 
-const API_KEY = process.env.DEEPSEEK_API_KEY; // Load from environment variables
 const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions";
-const MODEL_NAME = "deepseek-chat"; // Default model
 
-async function deepseekAPI(reason) {
+async function getAIResponse(userMessage, conversationHistory = []) {
     try {
-        console.log("Sending AI request with reason:", reason);  // Debugging
-
-        const prompt = `
-            You are an AI assistant for a military leave approval system. 
-            Your role is to analyze a soldier's leave request and provide a response based on military protocols.
-            Consider factors such as duty responsibilities, emergency situations, medical conditions, and operational readiness.
-
-            **Leave Request Details:**
-            - **Reason:** ${reason}
-
-            **Instructions for Response:**
-            - Provide a professional, structured response suitable for military personnel.
-            - Recommend necessary actions such as documentation, medical assessments, or command approval.
-            - If leave is urgent, suggest the best way to proceed.
-            - Keep responses concise and informative.
-
-            Provide your response below:
-        `;
-
         const response = await axios.post(
             DEEPSEEK_API_URL,
             {
-                model: MODEL_NAME,
-                messages: [{ role: "user", content: prompt }],
+                model: "deepseek-chat",
+                messages: [
+                    { role: "system", content: "You are a strict military leave consultant. Follow official military protocols when approving leave requests. Provide structured responses, including required documents, approval steps, and officers to contact.this is UK army" },
+                    ...conversationHistory,
+                    { role: "user", content: userMessage }
+                ],
+                temperature: 0.3, // Reduce randomness for structured responses
                 max_tokens: 500
             },
             {
-                headers: {
-                    "Authorization": `Bearer ${API_KEY}`,
-                    "Content-Type": "application/json"
-                }
+                headers: { Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}` }
             }
         );
 
-        console.log("Received AI response:", response.data.choices[0].message.content);  // Debugging
-        return response.data.choices[0].message.content || "No response generated.";
+        return response.data.choices[0].message.content;
     } catch (error) {
-        console.error("DeepSeek API Error:", error.response?.data || error.message);
-        return "Error processing request. Please try again later.";
+        console.error("DeepSeek API Error:", error);
+        return "Error retrieving AI response.";
     }
-}
-
-// Main function that calls deepseekAPI()
-async function getAIResponse(reason) {
-    return await deepseekAPI(reason);
 }
 
 module.exports = { getAIResponse };
