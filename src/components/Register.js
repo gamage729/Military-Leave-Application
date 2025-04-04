@@ -8,8 +8,8 @@ const Register = () => {
     name: "",
     email: "",
     password: "",
-    rank: "Private", // Default rank
-    role: "soldier", // Default role
+    rank: "", 
+    role: "", 
   });
   const navigate = useNavigate();
 
@@ -54,30 +54,33 @@ const Register = () => {
             title="Password must be at least 8 characters long, include 1 uppercase letter, 1 lowercase letter, 1 number, and 1 special character."
           />
 
-      <div className="dropdown-container">
-      <label className="dropdown-label">Select Your Rank</label>
-      <select
-        value={form.rank}
-        onChange={(e) => setForm({ ...form, rank: e.target.value })}
-        required
-      >
-        <option value="Private">Private</option>
-        <option value="Sergeant">Sergeant</option>
-        <option value="Lieutenant">Lieutenant</option>
-        <option value="Captain">Captain</option>
-        <option value="Major">Major</option>
-      </select>
+          <div className="dropdown-container">
+            {/* Rank Dropdown */}
+            <select
+              value={form.rank}
+              onChange={(e) => setForm({ ...form, rank: e.target.value })}
+              required
+            >
+              <option value="" disabled>Select Your Rank</option> {/* Placeholder */}
+              <option value="Private">Private</option>
+              <option value="Sergeant">Sergeant</option>
+              <option value="Lieutenant">Lieutenant</option>
+              <option value="Captain">Captain</option>
+              <option value="Major">Major</option>
+            </select>
 
-      <label className="dropdown-label">Select Your Role</label>
-      <select
-        value={form.role}
-        onChange={(e) => setForm({ ...form, role: e.target.value })}
-        required
-      >
-       <option value="soldier">Soldier</option>
-     <option value="officer">Officer</option>
-       </select>
-     </div>
+            {/* Role Dropdown */}
+            <select
+              value={form.role}
+              onChange={(e) => setForm({ ...form, role: e.target.value })}
+              required
+            >
+              <option value="" disabled>Select Your Role</option> {/* Placeholder */}
+              <option value="soldier">Soldier</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+
 
 
 
