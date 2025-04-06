@@ -1,8 +1,3 @@
-<<<<<<< Updated upstream
-/* Dashboard Page Styles */
-.dashboard-container {
-  display: flex;
-=======
 
 
 :root {
@@ -190,7 +185,7 @@
   height: 24px;
   object-fit: contain;
   margin-top:250%;
-  margin-left:740%;
+  margin-left:700%;
 }
 
 
@@ -275,44 +270,16 @@
   display: flex;
   flex-direction: column;
   align-items: center;
->>>>>>> Stashed changes
   justify-content: center;
-  align-items: center;
-  height: 100vh;
-  background: url("https://cdn.pixabay.com/photo/2020/01/13/22/23/soldier-4763674_1280.jpg") no-repeat center center/cover;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
 }
 
-/* Card Styling */
-.dashboard-card {
-  background: rgba(20, 20, 19, 0.7);
-  padding: 30px;
-  border-radius: 12px;
-  box-shadow: 0 4px 15px rgba(109, 106, 106, 0.3);
-  text-align: center;
-  max-width: 600px;
-  width: 100%;
-  backdrop-filter: blur(0.2px);
-  color: white;
-}
-
-/* Image Styling */
-.dashboard-image img {
-  width: 100%;
-  border-radius: 8px;
-  margin-bottom: 15px;
-}
-
-/* Text Styling */
-h2 {
+.circular-chart-value {
   font-size: 38px;
-  color: #dce3dd;
+  font-weight: bold;
+  color:#ffffff;
 }
 
-<<<<<<< Updated upstream
-p {
-  font-size: 16px;
-  color: #ddd;
-=======
 .circular-chart-label {
   font-size: 17px;
   color:#c8c9ca;
@@ -366,18 +333,10 @@ p {
 .chart-section h2 {
   font-size: 20px;
   color:#e3e4e6;
->>>>>>> Stashed changes
   margin-bottom: 20px;
   
 }
 
-<<<<<<< Updated upstream
-/* Button Styling */
-.dashboard-buttons button {
-  width: 80%;
-  padding: 12px;
-  margin: 5px 0;
-=======
 /* Leave Details Section */
 .leave-details-section {
   display: grid;
@@ -735,22 +694,19 @@ p {
 
 .calendar-header button {
   background: #2d2e2e;
->>>>>>> Stashed changes
   border: none;
   border-radius: 6px;
-  font-size: 16px;
+  padding: 0.5rem 1rem;
+  transition: all 0.2s;
   cursor: pointer;
-  transition: 0.3s ease;
+  font-size: 1rem;
+
 }
 
-.dashboard-buttons button:hover {
-  opacity: 0.9;
+.calendar-header button:hover {
+  background: #e2e6ea;
 }
 
-<<<<<<< Updated upstream
-.dashboard-buttons button:nth-child(1) {
-  background-color: #316e05;
-=======
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -789,22 +745,11 @@ p {
 
 .calendar-day.selected {
   background: #3a86ff;
->>>>>>> Stashed changes
   color: white;
+  font-weight: bold;
+  box-shadow: 0 0 0 2px #3a86ff;
 }
 
-<<<<<<< Updated upstream
-.dashboard-buttons button:nth-child(2) {
-  background-color: #316e05;
-  color: white;
-}
-
-.logout-btn {
-  background: none;
-  color: #ce102c; /* Gold */
-  border: 9px solid #FFD700;
-}
-=======
 .calendar-day.disabled {
   visibility: hidden;
 }
@@ -994,4 +939,3 @@ p {
 
 }
 
->>>>>>> Stashed changes

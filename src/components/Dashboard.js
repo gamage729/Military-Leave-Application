@@ -1,11 +1,9 @@
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import "../styles/DashboardStyles.css"; // Import external CSS
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import * as solidIcons from '@fortawesome/free-solid-svg-icons';
+import "../styles/DashboardStyles.css";
 
-<<<<<<< Updated upstream
-const Dashboard = () => {
-  const navigate = useNavigate();
-=======
 // , access icons
 const {
   faHome,
@@ -241,7 +239,6 @@ const Dashboard = () => {
     { id: 2, type: 'Medical', start: '2023-04-01', end: '2023-04-05', days: 4, status: 'Approved' },
     { id: 3, type: 'Emergency', start: '2023-03-15', end: '2023-03-16', days: 1, status: 'Rejected' },
   ];
->>>>>>> Stashed changes
 
   const logout = () => {
     localStorage.removeItem("token");
@@ -249,25 +246,31 @@ const Dashboard = () => {
     navigate("/login");
   };
 
+  const handleLeaveSubmit = (e) => {
+    e.preventDefault();
+    setShowLeaveForm(false);
+    setLeaveData({
+      leaveType: '',
+      startDate: '',
+      endDate: '',
+      reason: ''
+    });
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setLeaveData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
   return (
     <div className="dashboard-container">
-      <div className="dashboard-card">
-        <div className="dashboard-image">
-          <img 
-            src="https://media.istockphoto.com/id/932608578/photo/happy-soldier-home-from-deployment.jpg?s=612x612&w=0&k=20&c=zPtFNfZldH_Jk_UFXnwILOrtdctTok8XO4pJF1VrSzY=" 
-            alt="Dashboard" 
-          />
+      <div className="sidebar">
+        <div className="sidebar-header">
+          <h2>Special Forces</h2>
         </div>
-<<<<<<< Updated upstream
-        <h2>Special Force Dashboard</h2>
-        <p>Manage your activities efficiently with quick access.</p>
-        <div className="dashboard-buttons">
-          <button onClick={() => navigate("/leave")}>Request Leave</button>
-          <button onClick={() => navigate("/admin")}>Admin Panel</button>
-          <button onClick={logout} className="logout-btn">Logout</button>
-        </div>
-      </div>
-=======
         <div className="sidebar-scrollable">
         <div className="sidebar-menu">
           <div 
@@ -334,8 +337,8 @@ const Dashboard = () => {
         <div className="stats-container">
           <div className="stat-card">
           <div className="stat-icon">
-          <img src="/icons/total-requests.png" alt="Total Requests" />
-        </div>
+        <img src="/icons/total-requests.png" alt="Total Requests" />
+      </div>
             <h3>Total Leave Requests</h3>
             <h2>{leaveOverviewData.total}</h2>
             <p>+12% from last month</p>
@@ -522,7 +525,6 @@ const Dashboard = () => {
       </div>  
     </div>
     </div>
->>>>>>> Stashed changes
     </div>
   );
 };

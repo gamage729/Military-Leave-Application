@@ -28,14 +28,8 @@
   backdrop-filter: blur(5px);
 }
 
-<<<<<<< Updated upstream
 .register-form.h2 {
   font-size: 36px;
-=======
-h2 {
-  font-size: 28px;
-  font-weight: bold;
->>>>>>> Stashed changes
   margin-bottom: 10px;
   color: #9e0e26; /* Gold */
   font-weight: bold;
