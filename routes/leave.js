@@ -2,7 +2,10 @@ const express = require("express");
 const db = require("../config/db");
 const { authenticateToken, authorizeRoles } = require("../middleware/auth");
 const { handleLeaveRequest } = require("../src/controllers/leaveController");
-const { getAIResponse } = require("../src/services/deepseek");
+const getAIResponse = require('../src/services/deepseek');
+
+
+
 
 const router = express.Router();
 
@@ -15,22 +18,24 @@ router.post("/analyze", async (req, res) => {
         if (!reason) {
             return res.status(400).json({ error: "Leave reason is required." });
         }
-  
+
         // Store user message in conversation history
         conversationHistory.push({ role: "user", content: reason });
-  
+
         // Get AI military-specific response
         const aiResponse = await getAIResponse(reason, conversationHistory);
-  
+
         // Store AI response for conversation tracking
         conversationHistory.push({ role: "assistant", content: aiResponse });
-  
+
         res.json({ suggestion: aiResponse });
     } catch (error) {
         console.error("AI Processing Error:", error);
         res.status(500).json({ error: "Failed to analyze leave request." });
     }
 });
+
+
 
 // Admin: Get All Leave Requests
 router.get("/all", authenticateToken, authorizeRoles("admin"), (req, res) => {

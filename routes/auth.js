@@ -51,7 +51,7 @@ router.post("/register", validateRegistration, async (req, res) => {
     }
 });
 
-// ✅ Updated User Login (Now shows "Incorrect password" when applicable)
+// Updated User Login (Now shows "Incorrect password" when applicable)
 router.post("/login", loginLimiter, (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
@@ -67,7 +67,7 @@ router.post("/login", loginLimiter, (req, res) => {
         const user = results[0];
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
-            return res.status(401).json({ error: "Incorrect password" }); // ✅ CLEAR MESSAGE
+            return res.status(401).json({ error: "Incorrect password" }); // CLEAR MESSAGE
         }
 
         // Generate tokens
@@ -101,6 +101,7 @@ router.post("/refresh", (req, res) => {
         res.json({ accessToken: newAccessToken });
     });
 });
+
 
 // Logout Route
 router.post("/logout", (req, res) => {

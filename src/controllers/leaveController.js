@@ -1,4 +1,6 @@
-const { getAIResponse } = require("../services/deepseek");
+const getAIResponse = require('../services/deepseek');
+
+
 
 async function handleLeaveRequest(req, res) {
     try {
@@ -17,3 +19,4 @@ async function handleLeaveRequest(req, res) {
 }
 
 module.exports = { handleLeaveRequest };
+
