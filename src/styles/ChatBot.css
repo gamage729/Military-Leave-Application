@@ -1,0 +1,217 @@
+/* ChatBot.css */
+.chatbot-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    background-color: #f8f9fa;
+  }
+  
+  .chatbot-header {
+    background-color: #0056b3;
+    color: white;
+    padding: 15px 20px;
+    text-align: center;
+    border-bottom: 1px solid #004494;
+  }
+  
+  .chatbot-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+  }
+  
+  .messages-container {
+    flex-grow: 1;
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    max-height: 500px;
+  }
+  
+  .welcome-message {
+    background-color: #f0f4f8;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+  }
+  
+  .welcome-message h3 {
+    margin-top: 0;
+    color: #0056b3;
+  }
+  
+  .welcome-message ul {
+    margin-bottom: 0;
+    padding-left: 20px;
+  }
+  
+  .user-message, .bot-message {
+    max-width: 80%;
+    padding: 12px 16px;
+    border-radius: 10px;
+    position: relative;
+    margin-bottom: 10px;
+  }
+  
+  .user-message {
+    align-self: flex-end;
+    background-color: #0056b3;
+    color: white;
+    border-bottom-right-radius: 0;
+  }
+  
+  .bot-message {
+    align-self: flex-start;
+    background-color: #e9ecef;
+    color: #333;
+    border-bottom-left-radius: 0;
+  }
+  
+  .bot-message-emergency {
+    background-color: #f8d7da;
+    border-left: 4px solid #dc3545;
+  }
+  
+  .bot-message-priority {
+    background-color: #fff3cd;
+    border-left: 4px solid #ffc107;
+  }
+  
+  .error-message {
+    background-color: #f8d7da;
+    color: #721c24;
+    border-left: 4px solid #dc3545;
+  }
+  
+  .message-content {
+    word-wrap: break-word;
+  }
+  
+  .response-guidance {
+    white-space: pre-line;
+  }
+  
+  .next-steps, .contacts {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+  }
+  
+  .next-steps h4, .contacts h4 {
+    margin-top: 0;
+    margin-bottom: 8px;
+    font-size: 14px;
+    font-weight: bold;
+  }
+  
+  .next-steps ul, .contacts ul {
+    margin: 0;
+    padding-left: 20px;
+  }
+  
+  .chatbot-input {
+    display: flex;
+    padding: 10px;
+    background-color: white;
+    border-top: 1px solid #e0e0e0;
+  }
+  
+  .chatbot-input input {
+    flex-grow: 1;
+    padding: 10px 15px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    margin-right: 10px;
+    font-size: 16px;
+  }
+  
+  .chatbot-input button {
+    padding: 10px 20px;
+    background-color: #0056b3;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.2s;
+  }
+  
+  .chatbot-input button:hover {
+    background-color: #004494;
+  }
+  
+  .chatbot-input button:disabled {
+    background-color: #b3c6d8;
+    cursor: not-allowed;
+  }
+  
+  .message-timestamp {
+    font-size: 10px;
+    color: #666;
+    margin-top: 5px;
+    text-align: right;
+  }
+  
+  .typing-indicator {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  
+  .typing-indicator span {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background-color: #666;
+    border-radius: 50%;
+    animation: bounce 1.5s infinite ease-in-out;
+  }
+  
+  .typing-indicator span:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+  
+  .typing-indicator span:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+  
+  @keyframes bounce {
+    0%, 60%, 100% {
+      transform: translateY(0);
+    }
+    30% {
+      transform: translateY(-5px);
+    }
+  }
+  
+  .error-banner {
+    background-color: #f8d7da;
+    color: #721c24;
+    padding: 10px 15px;
+    margin: 10px;
+    border-radius: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .error-banner button {
+    background-color: transparent;
+    border: 1px solid #721c24;
+    color: #721c24;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  
+  .loading-message {
+    padding: 10px;
+    min-height: 20px;
+  }
