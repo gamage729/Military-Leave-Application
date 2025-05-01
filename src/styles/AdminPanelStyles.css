@@ -1,0 +1,118 @@
+/* Admin Panel Container */
+.admin-container {
+    max-width: 1000px;
+    margin: auto;
+    padding: 20px;
+    font-family: Arial, sans-serif;
+    background-color: #f8f9fd;
+  }
+  
+  /* Title */
+  .admin-title {
+    text-align: center;
+    font-size: 24px;
+    font-weight: bold;
+    margin-bottom: 20px;
+  }
+  
+  /* Summary Section */
+  .leave-summary {
+    display: flex;
+    justify-content: space-around;
+    margin-bottom: 20px;
+  }
+  
+  .summary-card {
+    padding: 15px;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 16px;
+    font-weight: bold;
+    text-align: center;
+    width: 150px;
+  }
+  
+  .annual { background-color: #4a90e2; }
+  .sick { background-color: #f5a623; }
+  .marriage { background-color: #d0021b; }
+  .maternity { background-color: #7d3c98; }
+  
+  /* Leave Requests Section */
+  .leave-requests {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+  }
+  
+  /* Leave Card */
+  .leave-card {
+    background: #fff;
+    padding: 15px;
+    border-radius: 10px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  }
+  
+  .leave-card p {
+    margin: 5px 0;
+  }
+  
+  .leave-type {
+    font-weight: bold;
+    color: #007bff;
+  }
+  
+  .status {
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-weight: bold;
+  }
+  
+  .status.approved {
+    background-color: #28a745;
+    color: white;
+  }
+  
+  .status.rejected {
+    background-color: #dc3545;
+    color: white;
+  }
+  
+  .status.pending {
+    background-color: #f5a623;
+    color: white;
+  }
+  
+  /* Buttons */
+  .buttons {
+    margin-top: 10px;
+    display: flex;
+    gap: 10px;
+  }
+  
+  .approve, .reject {
+    border: none;
+    padding: 8px 12px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    border-radius: 5px;
+  }
+  
+  .approve {
+    background-color: #28a745;
+    color: white;
+  }
+  
+  .reject {
+    background-color: #dc3545;
+    color: white;
+  }
+  
+  .approve:hover {
+    background-color: #218838;
+  }
+  
+  .reject:hover {
+    background-color: #c82333;
+  }
+  

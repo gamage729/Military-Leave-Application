@@ -1,0 +1,107 @@
+/* CSS Code (Registerstyles.css) */
+.register-container {
+  position: relative;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: url('https://cdn.pixabay.com/photo/2017/02/19/07/42/flag-2079064_1280.jpg') no-repeat center center/cover;
+}
+
+.overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.register-form {
+  position: relative;
+  z-index: 1;
+  background: rgba(204, 203, 200, 0.1);
+  padding: 7rem;
+  border-radius: 10px;
+  text-align: center;
+  color: #ffffff;
+  backdrop-filter: blur(5px);
+}
+
+.register-form.h2 {
+  font-size: 36px;
+  margin-bottom: 10px;
+  color: #9e0e26; /* Gold */
+  font-weight: bold;
+}
+.h2 {
+  font-size: 34px;
+  font-weight: bold;
+  margin-bottom: 20px;
+}
+.h2 {
+  font-size: 28px;
+  color: #b2bfb5;
+}
+
+.subheading {
+  font-size: 36px;
+  margin-bottom: 20px;
+  color: #FF4500; /* Orange Red */
+  font-weight: bold;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  width: 300px;
+}
+
+input {
+  width: 100%;
+  padding: 12px;
+  margin: 10px 0;
+  border-radius: 5px;
+  border: none;
+  font-size: 16px;
+  background-color: #222;
+  color: white;
+}
+
+button {
+  width: 100%;
+  padding: 12px;
+  margin-top: 10px;
+  border-radius: 5px;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.create-account {
+  background-color: #008000; /* Green */
+  color: white;
+}
+
+
+select {
+  width: 100%;
+  padding: 12px;
+  margin: 10px 0; /* Adds spacing */
+  border-radius: 5px;
+  border: 1px solid #444; /* Dark border */
+  font-size: 16px;
+  background-color: #222; /* Black theme */
+  color: white;
+  cursor: pointer;
+}
+
+/* Style for dropdowns when hovered */
+select:hover {
+  background-color: #333;
+}
+
+/* Space between dropdowns */
+select + select {
+  margin-top: 15px; /* Extra spacing between dropdowns */
+}
