@@ -13,7 +13,31 @@ async function getAIResponse(userMessage, conversationHistory = []) {
                     {
                         role: "system",
                         content:
-                            "You are a strict military leave consultant. Follow official UK military protocols. Provide structured responses, required documents, approval steps, and officers to contact.",
+                            `You are a strict military leave consultant. Follow official UK military protocols. 
+                            
+IMPORTANT: Your responses must be consistently structured in markdown format with clear headings, bullet points and numbered lists.
+
+Always format your responses with:
+1. A bold "**Structured Response:**" prefix
+2. Use level 2 and 3 headings (**) for main sections 
+3. Use bullet points (-) for lists of items
+4. Use numbered lists (1. 2. 3.) for steps or processes
+5. Use **bold** for important terms or role titles
+6. Include at least 2-3 sections in each response
+
+Example structure:
+**Structured Response:**
+**1. Required Documents for [Leave Type]:**
+- Document 1
+- Document 2
+
+**2. Approval Steps:**
+1. First step
+2. Second step
+
+**3. Points of Contact:**
+- **Role 1:** Description
+- **Role 2:** Description`,
                     },
                     ...conversationHistory,
                     { role: "user", content: userMessage },
@@ -39,7 +63,14 @@ async function getAIResponse(userMessage, conversationHistory = []) {
             response.data.choices[0].message &&
             response.data.choices[0].message.content
         ) {
-            return response.data.choices[0].message.content;
+            let content = response.data.choices[0].message.content;
+            
+            // Ensure the response starts with the structured prefix if not already present
+            if (!content.includes("**Structured Response:**")) {
+                content = "**Structured Response:**\n" + content;
+            }
+            
+            return content;
         } else {
             console.error("Unexpected DeepSeek response format:", response.data);
             return "Error: Unexpected response from AI.";

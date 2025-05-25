@@ -1,14 +1,10 @@
 const express = require("express");
-const db = require("../config/db");
+const db = require("../firebase");
 const { authenticateToken, authorizeRoles } = require("../middleware/auth");
 const { handleLeaveRequest } = require("../src/controllers/leaveController");
 const getAIResponse = require('../src/services/deepseek');
 
-
-
-
 const router = express.Router();
-
 const conversationHistory = []; // Store conversation context
 
 // AI Leave Analysis Route (No authentication required)
@@ -35,36 +31,43 @@ router.post("/analyze", async (req, res) => {
     }
 });
 
-
-
-// Admin: Get All Leave Requests
-router.get("/all", authenticateToken, authorizeRoles("admin"), (req, res) => {
-    const sql = "SELECT * FROM leave_requests";
-    db.query(sql, (err, results) => {
-        if (err) {
-            console.error("Database Error:", err);
-            return res.status(500).json({ error: "Database error." });
-        }
-        res.json(results);
-    });
+// Admin: Get All Leave Requests (Firestore)
+router.get("/all", authenticateToken, authorizeRoles("admin"), async (req, res) => {
+    try {
+        const snapshot = await db.collection("leave_requests").get();
+        const leaveRequests = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        res.json(leaveRequests);
+    } catch (err) {
+        console.error("Firestore Error:", err);
+        res.status(500).json({ error: "Failed to retrieve leave requests." });
+    }
 });
 
-// Admin Override Leave Decision
-router.put("/override", authenticateToken, authorizeRoles("admin"), (req, res) => {
+// Admin Override Leave Decision (Firestore)
+router.put("/override", authenticateToken, authorizeRoles("admin"), async (req, res) => {
     const { id, admin_override } = req.body;
 
     if (!id || !admin_override) {
         return res.status(400).json({ error: "ID and admin override decision are required." });
     }
 
-    const sql = "UPDATE leave_requests SET admin_override = ? WHERE id = ?";
-    db.query(sql, [admin_override, id], (err, result) => {
-        if (err) {
-            console.error("Database Error:", err);
-            return res.status(500).json({ error: "Database error." });
+    try {
+        const leaveRef = db.collection("leave_requests").doc(id);
+        const doc = await leaveRef.get();
+
+        if (!doc.exists) {
+            return res.status(404).json({ error: "Leave request not found." });
         }
+
+        await leaveRef.update({ admin_override });
         res.json({ message: "Leave request override updated." });
-    });
+    } catch (err) {
+        console.error("Firestore Update Error:", err);
+        res.status(500).json({ error: "Failed to update leave request." });
+    }
 });
 
 module.exports = router;

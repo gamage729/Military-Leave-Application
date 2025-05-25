@@ -18,7 +18,7 @@ router.post("/", (req, res) => {
         const newAccessToken = jwt.sign(
             { id: user.id },
             process.env.ACCESS_TOKEN_SECRET,
-            { expiresIn: "15m" }
+            { expiresIn: "24h" }
         );
 
         res.json({ accessToken: newAccessToken });
