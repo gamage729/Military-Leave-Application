@@ -155,8 +155,8 @@ const FloatingChatBot = () => {
         onMouseDown={handleMouseDown}
         onClick={toggleChat}
         style={{
-          width: '60px',
-          height: '60px',
+          width: '57px',
+          height: '57px',
           borderRadius: '50%',
           backgroundColor: isOpen ? '#2d4da1' : '#3e6ae1',
           display: 'flex',
@@ -167,8 +167,8 @@ const FloatingChatBot = () => {
         }}
       >
         <svg 
-          width="32" 
-          height="32" 
+          width="30" 
+          height="30" 
           viewBox="0 0 24 24" 
           fill="none" 
           stroke="white" 
@@ -243,7 +243,7 @@ const FloatingChatBot = () => {
               onClick={openChatbot}
               style={{
                 padding: '10px 15px',
-                backgroundColor: '#3e6ae1',
+                backgroundColor: '#335eff',
                 color: 'white',
                 border: 'none',
                 borderRadius: '5px',

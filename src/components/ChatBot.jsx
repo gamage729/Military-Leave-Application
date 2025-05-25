@@ -1,7 +1,66 @@
 import React, { useState, useEffect, useRef } from 'react';
 import '../styles/ChatBot.css';
 import axios from 'axios';
-import Sidebar from './Sidebar'; // Import the Sidebar component
+import Sidebar from './Sidebar';
+import { Link } from 'react-router-dom';
+
+const militaryAssistantStyles = {
+  militaryLeaveCard: {
+    position: 'fixed',
+    bottom: '20px',
+    right: '20px',
+    display: 'flex',
+    alignItems: 'center',
+    backgroundColor: '#007bff',
+    border: 'none',
+    borderRadius: '50px',
+    padding: '10px',
+    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.2)',
+    zIndex: 1000,
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+    textDecoration: 'none'
+  },
+  militaryIcon: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    color: 'white'
+  },
+  militaryLabel: {
+    margin: '0 0 0 8px',
+    fontSize: '12px',
+    fontWeight: '500',
+    color: 'white',
+    whiteSpace: 'nowrap'
+  },
+  militaryTooltip: {
+    position: 'absolute',
+    bottom: '60px',
+    right: '0',
+    width: '200px',
+    backgroundColor: 'white',
+    borderRadius: '8px',
+    padding: '12px',
+    boxShadow: '0 3px 15px rgba(0, 0, 0, 0.2)',
+    opacity: 0,
+    visibility: 'hidden',
+    transition: 'all 0.3s ease',
+    pointerEvents: 'none'
+  },
+  militaryTooltipHeading: {
+    margin: '0 0 8px 0',
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#333'
+  },
+  militaryTooltipText: {
+    margin: '0 0 10px 0',
+    fontSize: '12px',
+    color: '#555',
+    lineHeight: 1.4
+  }
+};
 
 const ChatBot = () => {
   
@@ -11,37 +70,33 @@ const ChatBot = () => {
   const [error, setError] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef(null);
-  const [activePage, setActivePage] = useState('chatbot'); // Track active page
+  const [activePage, setActivePage] = useState('chatbot');
+  const [showAIHelp, setShowAIHelp] = useState(false);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
-  const USER_ID = 'user123'; // Typically from authenticated user data
+  const USER_ID = 'user123';
 
-  // Persistent quick action buttons
   const quickActions = [
     "Check leave types",
     "Report sick leave"
   ];
 
-  // Scroll to the latest message whenever the messages change
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
 
-  // Set chatbot as active page when component mounts
   useEffect(() => {
     setActivePage('chatbot');
   }, []);
 
-  // Check if the backend server is available when the component mounts
   useEffect(() => {
     const checkServerConnection = async () => {
       try {
         const response = await axios.get(`${API_URL}/health`);
         console.log('Server connection:', response.data);
         
-        // Add welcome message
         setMessages([{
           id: Date.now(),
           text: "Hello! I'm your leave management assistant. How can I help you today?",
@@ -54,6 +109,10 @@ const ChatBot = () => {
             contacts: {}
           }
         }]);
+
+        setTimeout(() => {
+          setShowAIHelp(true);
+        }, 3000);
       } catch (error) {
         console.error('Server connection error:', error);
         setError('Unable to connect to leave management system. Please try again later.');
@@ -75,7 +134,6 @@ const ChatBot = () => {
   
       const reply = res.data.fulfillmentText;
       
-      // Simulate typing delay for more natural feel
       await new Promise(resolve => setTimeout(resolve, 1000));
       setIsTyping(false);
   
@@ -113,11 +171,9 @@ const ChatBot = () => {
     }
   };
   
-  // Handle quick action button clicks - immediately send the request
   const handleQuickAction = async (action) => {
     if (isLoading) return;
     
-    // Add user message first
     const userMessage = {
       id: Date.now(),
       text: action,
@@ -138,7 +194,6 @@ const ChatBot = () => {
         })
       );
       
-      // Simulate typing delay for more natural feel
       await new Promise(resolve => setTimeout(resolve, 1000));
       setIsTyping(false);
   
@@ -154,7 +209,6 @@ const ChatBot = () => {
         };
         setMessages((prev) => [...prev, botMessage]);
       } else {
-        // If no valid response from main backend, fallback to Dialogflow
         await sendToDialogflow(action);
       }
   
@@ -191,7 +245,6 @@ const ChatBot = () => {
     }
   };
   
-  // Handle sending a message to the backend and processing the response
   const sendMessage = async (event) => {
     event.preventDefault();
     if (!inputMessage.trim() || isLoading) return;
@@ -217,7 +270,6 @@ const ChatBot = () => {
         })
       );
       
-      // Simulate typing delay for more natural feel
       await new Promise(resolve => setTimeout(resolve, 1000));
       setIsTyping(false);
   
@@ -233,7 +285,6 @@ const ChatBot = () => {
         };
         setMessages((prev) => [...prev, botMessage]);
       } else {
-        // If no valid response from main backend, fallback to Dialogflow
         await sendToDialogflow(inputMessage);
       }
   
@@ -270,7 +321,6 @@ const ChatBot = () => {
     }
   };
   
-  // Retry logic for failed API calls
   const sendWithRetry = async (apiCall, maxRetries = 3) => {
     let retries = 0;
     while (retries < maxRetries) {
@@ -287,13 +337,11 @@ const ChatBot = () => {
     }
   };
 
-  // Helper function to format timestamp
   const formatTime = (timestamp) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  // Helper function to get message card class based on priority
   const getCardClass = (message) => {
     const baseClass = message.sender === 'user' ? 'user-message' : 'bot-message';
     
@@ -312,7 +360,6 @@ const ChatBot = () => {
     return baseClass;
   };
 
-  // Render next steps for the user
   const renderNextSteps = (steps) => {
     if (!steps || !steps.length) return null;
     return (
@@ -327,7 +374,6 @@ const ChatBot = () => {
     );
   };
 
-  // Render contact information
   const renderContacts = (contacts) => {
     if (!contacts || Object.keys(contacts).length === 0) return null;
     return (
@@ -342,15 +388,11 @@ const ChatBot = () => {
     );
   };
 
-  // Handle sidebar option selection
   const handleSidebarOptionSelect = (optionId) => {
-    // Set active page
     setActivePage(optionId);
     
-    // You can implement specific actions based on sidebar selections
     console.log(`Selected option: ${optionId}`);
     
-    // Example: Add a system message based on the selected option
     let systemMessage;
     
     switch(optionId) {
@@ -486,6 +528,43 @@ const ChatBot = () => {
           </button>
         </form>
       </div>
+      
+      {/* Military Leave AI Assistant - Minimalist floating icon with tooltip */}
+      {showAIHelp && (
+        <Link 
+          to="/leave-request-ai" 
+          style={militaryAssistantStyles.militaryLeaveCard}
+          onMouseEnter={(e) => {
+            const tooltip = e.currentTarget.querySelector('.ai-tooltip');
+            if (tooltip) {
+              tooltip.style.opacity = '1';
+              tooltip.style.visibility = 'visible';
+            }
+          }}
+          onMouseLeave={(e) => {
+            const tooltip = e.currentTarget.querySelector('.ai-tooltip');
+            if (tooltip) {
+              tooltip.style.opacity = '0';
+              tooltip.style.visibility = 'hidden';
+            }
+          }}
+        >
+          <div style={militaryAssistantStyles.militaryIcon}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+            </svg>
+          </div>
+          <span style={militaryAssistantStyles.militaryLabel}>More help</span>
+          
+          {/* Tooltip that appears on hover */}
+          <div className="ai-tooltip" style={militaryAssistantStyles.militaryTooltip}>
+            <h4 style={militaryAssistantStyles.militaryTooltipHeading}>Military Leave AI Assistant</h4>
+            <p style={militaryAssistantStyles.militaryTooltipText}>
+              Get specialized assistance with military leave requests and regulations.
+            </p>
+          </div>
+        </Link>
+      )}
     </div>
   );
 };

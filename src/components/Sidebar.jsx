@@ -25,6 +25,7 @@ const Sidebar = ({ activeMenu: externalActiveMenu, setActiveMenu: externalSetAct
     faFileAlt,
     faUsers,
     faCog,
+    faRobot,
     faSignOutAlt,
     faPaperPlane
   } = solidIcons;
@@ -122,7 +123,7 @@ const Sidebar = ({ activeMenu: externalActiveMenu, setActiveMenu: externalSetAct
         <img 
           src={sidebarTopImage} 
           alt="Sidebar Top" 
-          style={{ width: '118%', height: '85px', objectFit: 'cover' }}
+          style={{ width: '115%', height: '140px', objectFit: 'cover' }}
         />
       </div>
 
@@ -144,14 +145,6 @@ const Sidebar = ({ activeMenu: externalActiveMenu, setActiveMenu: externalSetAct
         </div>
 
         <div 
-          className={`menu-item ${activeMenu === 'leave' ? 'active' : ''}`}
-          onClick={() => navigateToSection('leave')}
-        >
-          <FontAwesomeIcon icon={faCalendarAlt} />
-          <span>Leave Requests</span>
-        </div>
-
-        <div 
           className={`menu-item ${activeMenu === 'news' ? 'active' : ''}`}
           onClick={() => navigateToSection('news')}
         >
@@ -163,7 +156,7 @@ const Sidebar = ({ activeMenu: externalActiveMenu, setActiveMenu: externalSetAct
           className={`menu-item ${activeMenu === 'chatbot' ? 'active' : ''}`}
           onClick={() => navigateToSection('chatbot')}
         >
-          <FontAwesomeIcon icon={faUsers} />
+          <FontAwesomeIcon icon={faRobot} />
           <span>Chatbot</span>
         </div>
 

@@ -12,11 +12,21 @@ const Login = () => {
   const handleLogin = async (e) => {
     e.preventDefault();
     setError(""); 
-
+  
     try {
       const res = await login({ email, password });
-      localStorage.setItem("token", res.data.accessToken);
+      // Change from "token" to "accessToken" to match backend expectation
+      localStorage.setItem("accessToken", res.data.accessToken);
+      localStorage.setItem("refreshToken", res.data.refreshToken); // Add this line
       localStorage.setItem("user", JSON.stringify(res.data.user));
+      
+      // Debug log
+      console.log("Tokens stored:", {
+        accessToken: localStorage.getItem("accessToken"),
+        refreshToken: localStorage.getItem("refreshToken"),
+        user: localStorage.getItem("user")
+      });
+      
       navigate("/dashboard");
     } catch (error) {
       if (error.response) {
