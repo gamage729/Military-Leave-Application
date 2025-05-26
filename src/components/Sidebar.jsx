@@ -5,6 +5,8 @@ import * as solidIcons from '@fortawesome/free-solid-svg-icons';
 import { useNavigate, useLocation } from "react-router-dom";
 import "../styles/SidebarStyles.css";
 import sidebarTopImage from '../assets/images/sidebar-top.jpg';
+import { ensureValidToken } from '../utils/auth';
+
 
 const Sidebar = ({ activeMenu: externalActiveMenu, setActiveMenu: externalSetActiveMenu }) => {
   // Create internal state if no external state management is provided
@@ -53,21 +55,39 @@ const Sidebar = ({ activeMenu: externalActiveMenu, setActiveMenu: externalSetAct
     }
   }, [location.pathname, location.state, setActiveMenu]);
 
-  const logout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    navigate("/login");
-  };
+// Updated logout function  
+const logout = () => {
+  // Clear all auth-related items consistently
+  localStorage.removeItem("accessToken");
+  localStorage.removeItem("refreshToken");
+  localStorage.removeItem("token"); // Remove if you're no longer using this
+  localStorage.removeItem("user");
+  navigate("/login");
+};
 
   // Function to handle section navigation
-  const navigateToSection = (section) => {
-    const token = localStorage.getItem("token");
+  const navigateToSection = async (section) => {
+    // Use your actual token keys (accessToken instead of token)
+    const accessToken = localStorage.getItem("accessToken");
+    const refreshToken = localStorage.getItem("refreshToken");
   
-    if (location.pathname !== '/login' && !token) {
+    // Check if we're authenticated (using the same logic as your auth system)
+    if (location.pathname !== '/login' && (!accessToken || !refreshToken)) {
+      console.log("No valid tokens found, redirecting to login");
       navigate("/login");
       return;
     }
   
+    // Optional: Validate tokens aren't expired
+    try {
+      await ensureValidToken(); // Use your existing token validation function
+    } catch (error) {
+      console.error("Token validation failed:", error);
+      navigate("/login");
+      return;
+    }
+  
+    // Rest of your navigation logic remains the same
     if (section === 'apply-for-leave') {
       setActiveMenu('apply-for-leave');
       
@@ -82,7 +102,6 @@ const Sidebar = ({ activeMenu: externalActiveMenu, setActiveMenu: externalSetAct
     } else {
       setActiveMenu(section);
       if (section === 'dashboard') {
-        // If already on dashboard, scroll to top
         if (location.pathname === '/dashboard') {
           const topElement = document.getElementById('dashboard-top');
           if (topElement) {

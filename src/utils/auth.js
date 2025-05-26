@@ -144,6 +144,25 @@ export const authAPI = {
     }
   },
 };
+export const ensureValidToken = async () => {
+  const token = localStorage.getItem("accessToken");
+
+  if (!token) throw new Error("No access token found");
+
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1])); // Decode JWT payload
+    const now = Math.floor(Date.now() / 1000);
+
+    if (payload.exp && payload.exp < now) {
+      throw new Error("Access token expired");
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Invalid token:", error);
+    throw new Error("Invalid token");
+  }
+};
 
 // Export the configured axios instance for API calls
 export default api;

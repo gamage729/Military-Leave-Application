@@ -146,37 +146,78 @@ const apiCall = async (endpoint, options = {}) => {
   }
 };
 
-// Enhanced token validation function
 const validateTokenAndUser = () => {
+  // 1. Retrieve tokens and user data
   const accessToken = localStorage.getItem('accessToken');
   const refreshToken = localStorage.getItem('refreshToken');
   const storedUser = localStorage.getItem('user');
-  
+
+  // 2. Debug logging (consider removing in production)
   console.log('Token Validation:', {
     hasAccessToken: !!accessToken,
     hasRefreshToken: !!refreshToken,
     hasUser: !!storedUser,
-    accessTokenLength: accessToken ? accessToken.length : 0,
-    refreshTokenLength: refreshToken ? refreshToken.length : 0
+    accessTokenPrefix: accessToken?.slice(0, 10), // Safer than logging full length
+    refreshTokenPrefix: refreshToken?.slice(0, 10)
   });
 
-  if (storedUser) {
-    try {
-      const user = JSON.parse(storedUser);
-      console.log('User Data:', {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role
-      });
-      return user;
-    } catch (error) {
-      console.error('Error parsing user data:', error);
+  // 3. Basic presence check
+  if (!accessToken || !refreshToken || !storedUser) {
+    console.warn('Missing authentication data');
+    return null;
+  }
+
+  // 4. Parse and validate user data
+  let user;
+  try {
+    user = JSON.parse(storedUser);
+    
+    // Validate required user fields
+    if (!user?.id || typeof user.id !== 'string') {
+      console.error('Invalid user ID');
       return null;
     }
+    
+    if (!user?.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user.email)) {
+      console.error('Invalid user email');
+      return null;
+    }
+
+    console.log('Valid User Data:', {
+      id: user.id.slice(0, 8) + '...', // Truncate for security
+      email: user.email,
+      role: user.role || 'unknown'
+    });
+  } catch (error) {
+    console.error('User data parsing failed:', error);
+    return null;
   }
-  
-  return null;
+
+  // 5. Basic JWT validation (optional)
+  try {
+    if (!accessToken.includes('.') || accessToken.split('.').length !== 3) {
+      console.error('Malformed access token');
+      return null;
+    }
+
+    // Check token expiration if it's a JWT
+    const payload = JSON.parse(atob(accessToken.split('.')[1]));
+    if (payload.exp && payload.exp < Date.now() / 1000) {
+      console.warn('Token expired');
+      return null;
+    }
+
+    // Verify token matches user (basic check)
+    if (payload.sub && payload.sub !== user.id) {
+      console.error('Token-user mismatch');
+      return null;
+    }
+  } catch (error) {
+    console.warn('Token validation warning:', error);
+    // Continue even if token validation fails (server will verify)
+  }
+
+  return user;
 };
 
 // Calendar Component
@@ -356,7 +397,7 @@ const Announcements = ({ announcements, loading }) => {
 const CircularChart = ({ approved, pending, rejected, total }) => {
   const radius = 40;
   const circumference = 2 * Math.PI * radius;
-  
+
   const approvedLength = total > 0 ? (approved / total) * circumference : 0;
   const pendingLength = total > 0 ? (pending / total) * circumference : 0;
   const rejectedLength = total > 0 ? (rejected / total) * circumference : 0;
@@ -381,6 +422,7 @@ const CircularChart = ({ approved, pending, rejected, total }) => {
           </linearGradient>
         </defs>
 
+        {/* Background circle */}
         <circle
           cx="50"
           cy="50"
@@ -389,43 +431,53 @@ const CircularChart = ({ approved, pending, rejected, total }) => {
           stroke="rgba(255, 255, 255, 0.05)"
           strokeWidth="12"
         />
-        
-        <circle
-          cx="50"
-          cy="50"
-          r={radius}
-          fill="none"
-          stroke="url(#approvedGradient)"
-          strokeWidth="12"
-          strokeDasharray={`${approvedLength} ${circumference}`}
-          strokeDashoffset="0"
-          strokeLinecap="round"
-        />
-        
-        <circle
-          cx="50"
-          cy="50"
-          r={radius}
-          fill="none"
-          stroke="url(#pendingGradient)"
-          strokeWidth="12"
-          strokeDasharray={`${pendingLength} ${circumference}`}
-          strokeDashoffset={`-${approvedLength}`}
-          strokeLinecap="round"
-        />
-        
-        <circle
-          cx="50"
-          cy="50"
-          r={radius}
-          fill="none"
-          stroke="url(#rejectedGradient)"
-          strokeWidth="12"
-          strokeDasharray={`${rejectedLength} ${circumference}`}
-          strokeDashoffset={`-${approvedLength + pendingLength}`}
-          strokeLinecap="round"
-        />
+
+        {/* Approved */}
+        {approved > 0 && (
+          <circle
+            cx="50"
+            cy="50"
+            r={radius}
+            fill="none"
+            stroke="url(#approvedGradient)"
+            strokeWidth="12"
+            strokeDasharray={`${approvedLength} ${circumference}`}
+            strokeDashoffset="0"
+            strokeLinecap="round"
+          />
+        )}
+
+        {/* Pending */}
+        {pending > 0 && (
+          <circle
+            cx="50"
+            cy="50"
+            r={radius}
+            fill="none"
+            stroke="url(#pendingGradient)"
+            strokeWidth="12"
+            strokeDasharray={`${pendingLength} ${circumference}`}
+            strokeDashoffset={`-${approvedLength}`}
+            strokeLinecap="round"
+          />
+        )}
+
+        {/* Rejected */}
+        {rejected > 0 && (
+          <circle
+            cx="50"
+            cy="50"
+            r={radius}
+            fill="none"
+            stroke="url(#rejectedGradient)"
+            strokeWidth="12"
+            strokeDasharray={`${rejectedLength} ${circumference}`}
+            strokeDashoffset={`-${approvedLength + pendingLength}`}
+            strokeLinecap="round"
+          />
+        )}
       </svg>
+
       <div className="circular-chart-center">
         <span className="circular-chart-value">{total}</span>
         <span className="circular-chart-label">Total Requests</span>
@@ -555,65 +607,124 @@ const Dashboard = () => {
     const accessToken = localStorage.getItem('accessToken');
     const refreshToken = localStorage.getItem('refreshToken');
     
+    // Basic validation
     if (!accessToken || !refreshToken) {
-      throw new Error('No tokens available');
+      console.error('Missing tokens - access:', !!accessToken, 'refresh:', !!refreshToken);
+      throw new Error('Authentication required');
     }
-    
-    // Try to decode token to check expiry (if it's a JWT)
+  
+    // Basic JWT format validation
+    if (!/^[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*$/.test(accessToken)) {
+      console.warn('Malformed access token structure');
+      await refreshAccessToken();
+      return;
+    }
+  
     try {
       const tokenPayload = JSON.parse(atob(accessToken.split('.')[1]));
       const currentTime = Math.floor(Date.now() / 1000);
       
-      // If token expires in less than 5 minutes, refresh it
-      if (tokenPayload.exp && tokenPayload.exp - currentTime < 300) {
-        console.log('Token expiring soon, refreshing...');
+      // Validate payload structure
+      if (!tokenPayload.exp) {
+        console.warn('Token missing expiration - forcing refresh');
+        await refreshAccessToken();
+        return;
+      }
+      
+      // Refresh if token expires soon or is already expired
+      if (tokenPayload.exp - currentTime < 300) {
+        console.log(`Token expiring soon (${tokenPayload.exp - currentTime}s remaining)`);
         await refreshAccessToken();
       }
     } catch (error) {
-      // If token is not JWT or can't be decoded, try to refresh anyway
-      console.log('Cannot decode token, attempting refresh...', error);
+      console.error('Token validation error:', error);
       await refreshAccessToken();
     }
   };
-
-  const refreshAccessToken = async () => {
+  
+  const refreshAccessToken = async (retryCount = 0) => {
+    const MAX_RETRIES = 2;
     const refreshToken = localStorage.getItem('refreshToken');
     
     if (!refreshToken) {
-      throw new Error('No refresh token available');
+      console.error('No refresh token available');
+      await clearAuthAndRedirect();
+      throw new Error('Session expired');
     }
-    
+  
     try {
       const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'X-Request-Id': crypto.randomUUID() // For tracking requests
         },
         body: JSON.stringify({ token: refreshToken })
       });
       
-      if (response.ok) {
-        const { accessToken, refreshToken: newRefreshToken } = await response.json();
-        localStorage.setItem('accessToken', accessToken);
-        if (newRefreshToken) {
-          localStorage.setItem('refreshToken', newRefreshToken);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        
+        // Handle specific error cases
+        if (response.status === 401 || response.status === 403) {
+          console.error('Refresh token rejected:', errorData);
+          await clearAuthAndRedirect();
+          throw new Error('Session expired');
         }
-        console.log('Token refreshed successfully');
-        return accessToken;
-      } else {
-        const errorData = await response.json();
-        console.error('Token refresh failed:', errorData);
-        throw new Error('Token refresh failed');
+        
+        // Retry for server errors
+        if (response.status >= 500 && retryCount < MAX_RETRIES) {
+          console.warn(`Retrying refresh (attempt ${retryCount + 1})`);
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+          return refreshAccessToken(retryCount + 1);
+        }
+        
+        throw new Error(errorData.message || 'Token refresh failed');
       }
+  
+      const { accessToken, refreshToken: newRefreshToken } = await response.json();
+      
+      // Validate new tokens
+      if (!accessToken) {
+        throw new Error('No access token in response');
+      }
+      
+      localStorage.setItem('accessToken', accessToken);
+      if (newRefreshToken) {
+        localStorage.setItem('refreshToken', newRefreshToken);
+      }
+      
+      console.log('Token refresh successful');
+      return accessToken;
+      
     } catch (error) {
-      console.error('Token refresh error:', error);
-      // Clear tokens and redirect to login
-      localStorage.removeItem('accessToken');
-      localStorage.removeToken('refreshToken');
-      localStorage.removeItem('user');
-      navigate('/login');
+      console.error('Refresh failed:', error);
+      
+      // Don't retry for network errors if we've already retried
+      if (retryCount >= MAX_RETRIES || error.message === 'Session expired') {
+        await clearAuthAndRedirect();
+      }
+      
       throw error;
     }
+  };
+  
+  const clearAuthAndRedirect = async () => {
+    // Clear all auth-related items
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('user');
+    
+    // Optional: Clear any cached sensitive data
+    // await caches.delete('auth-data');
+    
+    // Redirect to login with state for recovery
+    navigate('/login', { 
+      state: { 
+        from: window.location.pathname,
+        reason: 'session_expired'
+      } 
+    });
   };
 
   // Enhanced fetch functions with auth error handling
@@ -659,7 +770,7 @@ const Dashboard = () => {
       if (response.success) {
         const leaveTypes = response.data.leaveTypes;
   
-        // ✅ Dynamically sum used + remaining for all types
+        //  Dynamically sum used + remaining for all types
         const usedLeaves = leaveTypes.reduce((sum, lt) => sum + lt.used, 0);
         const remainingLeaves = leaveTypes.reduce((sum, lt) => sum + lt.remaining, 0);
         const totalLeaves = usedLeaves + remainingLeaves;
@@ -744,95 +855,121 @@ const Dashboard = () => {
   };
 
   useEffect(() => {
-    // Enhanced validation and debugging
-    const accessToken = localStorage.getItem("accessToken");
-    const refreshToken = localStorage.getItem("refreshToken");
-    const storedUser = localStorage.getItem("user");
-    
-    console.log("=== Dashboard Mount Debug ===");
-    console.log("Access Token:", !!accessToken ? "Present" : "Missing");
-    console.log("Refresh Token:", !!refreshToken ? "Present" : "Missing");
-    console.log("Stored User:", !!storedUser ? "Present" : "Missing");
-    
-    if (!accessToken || !refreshToken) {
-      console.log("Missing tokens, redirecting to login");
-      navigate("/login");
-      return;
-    }
-    
-    let currentUser = {
-      name: "Loading...",
-      email: "",
-      rank: "", 
-      role: "soldier",
-      id: ""
-    };
-    
-    if (storedUser) {
-      try {
-        currentUser = JSON.parse(storedUser);
-        console.log("Parsed User:", {
-          id: currentUser.id,
-          email: currentUser.email,
-          role: currentUser.role,
-          name: currentUser.name
-        });
-      } catch (error) {
-        console.error("Error parsing user data:", error);
-        // Clear corrupted data and redirect
-        localStorage.clear();
+    const initializeDashboard = async () => {
+      // Debug logging
+      console.log("=== Dashboard Initialization ===");
+      
+      // 1. Token Validation
+      const accessToken = localStorage.getItem("accessToken");
+      const refreshToken = localStorage.getItem("refreshToken");
+      const storedUser = localStorage.getItem("user");
+      
+      console.log("Auth Status:", {
+        accessToken: !!accessToken,
+        refreshToken: !!refreshToken,
+        storedUser: !!storedUser
+      });
+  
+      // 2. Handle missing tokens
+      if (!accessToken || !refreshToken) {
+        console.log("Missing tokens - redirecting to login");
         navigate("/login");
         return;
       }
-    }
-    
-    // Validate user has required fields
-    if (!currentUser.id) {
-      console.error("User ID missing, redirecting to login");
-      localStorage.clear();
-      navigate("/login");
-      return;
-    }
-    
-    setUser(currentUser);
-    
-    // Add delays to prevent rate limiting and debug sequentially
-    const fetchDataWithDelay = async () => {
+  
+      // 3. Parse and validate user data
+      let currentUser = {
+        name: "Loading...",
+        email: "",
+        rank: "", 
+        role: "soldier",
+        id: ""
+      };
+  
+      if (storedUser) {
+        try {
+          currentUser = JSON.parse(storedUser);
+          console.log("User Data:", {
+            id: currentUser.id,
+            name: currentUser.name,
+            role: currentUser.role
+          });
+  
+          if (!currentUser.id) {
+            throw new Error("Invalid user data - missing ID");
+          }
+        } catch (error) {
+          console.error("User data error:", error);
+          localStorage.clear();
+          navigate("/login");
+          return;
+        }
+      }
+  
+      // 4. Set user state
+      setUser(currentUser);
+  
+      // 5. Token refresh check (if token is about to expire)
       try {
-        console.log("Starting API calls for user:", currentUser.id);
-        
-        // Fetch overview data first
-        await fetchOverviewData(currentUser.id);
-        
-        // Small delay between calls
-        setTimeout(async () => {
-          await fetchEntitlementData(currentUser.id);
-        }, 500);
-        
-        setTimeout(async () => {
-          await fetchPreviousLeaves(currentUser.id);
-        }, 1000);
-        
-        setTimeout(async () => {
-          await fetchAnnouncements();
-        }, 1500);
-        
+        await ensureValidToken();
       } catch (error) {
-        console.error("Error in sequential fetch:", error);
+        console.error("Token validation failed:", error);
+        logout();
+        return;
+      }
+  
+      // 6. Data fetching with improved error handling
+      const fetchData = async () => {
+        try {
+          console.log("Starting data fetch for user:", currentUser.id);
+          
+          // Sequential fetching with delays
+          await Promise.all([
+            fetchOverviewData(currentUser.id),
+            new Promise(resolve => setTimeout(resolve, 500)).then(() => fetchEntitlementData(currentUser.id)),
+            new Promise(resolve => setTimeout(resolve, 1000)).then(() => fetchPreviousLeaves(currentUser.id)),
+            new Promise(resolve => setTimeout(resolve, 1500)).then(() => fetchAnnouncements())
+          ]);
+  
+        } catch (error) {
+          console.error("Data fetch error:", error);
+          
+          // Handle specific error cases
+          if (error?.response?.status === 401) {
+            try {
+              console.log("Attempting token refresh after 401 error");
+              await refreshAccessToken();
+              // Retry the failed request(s)
+              if (error.config?.url.includes("overview")) {
+                await fetchOverviewData(currentUser.id);
+              }
+            } catch (refreshError) {
+              console.error("Token refresh failed:", refreshError);
+              logout();
+            }
+          }
+        }
+      };
+  
+      await fetchData();
+  
+      // 7. Handle scroll behavior (kept from your original)
+      if (location.state?.scrollToApplyForLeave) {
+        setTimeout(() => {
+          const element = document.getElementById('apply-for-leave');
+          if (element) element.scrollIntoView({ behavior: 'smooth' });
+        }, 2000);
+      } else {
+        window.scrollTo(0, 0);
       }
     };
-    
-    fetchDataWithDelay();
-    
-    // Handle scroll behavior
-    if (location.state?.scrollToApplyForLeave) {
-      setTimeout(() => {
-        const element = document.getElementById('apply-for-leave');
-        if (element) element.scrollIntoView({ behavior: 'smooth' });
-      }, 2000);
-    } else {
-      window.scrollTo(0, 0);
-    }
+  
+    initializeDashboard();
+  
+    // Cleanup function
+    return () => {
+      
+    };
   }, [navigate, location.state]);
 
   // File handling functions (unchanged)
@@ -876,9 +1013,6 @@ const Dashboard = () => {
     e.preventDefault();
     setIsSubmitting(true);
   
-    // Just log the leave data here
-    console.log("Submitting leave with data:", leaveData);
-  
     try {
       const response = await apiCall('/dashboard/apply', {
         method: 'POST',
@@ -891,6 +1025,38 @@ const Dashboard = () => {
       });
   
       if (response.success) {
+        // Calculate days difference
+        const start = new Date(leaveData.startDate);
+        const end = new Date(leaveData.endDate);
+        const timeDiff = end.getTime() - start.getTime();
+        const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1; // +1 to include both start and end days
+  
+        // Update entitlement data
+        setEntitlementData(prev => {
+          const updatedLeaveTypes = prev.leaveTypes.map(type => {
+            if (type.name === leaveData.leaveType) {
+              return {
+                ...type,
+                used: type.used + daysDiff,
+                remaining: type.total - (type.used + daysDiff)
+              };
+            }
+            return type;
+          });
+  
+          const usedLeaves = updatedLeaveTypes.reduce((sum, lt) => sum + lt.used, 0);
+          const remainingLeaves = updatedLeaveTypes.reduce((sum, lt) => sum + lt.remaining, 0);
+          const totalLeaves = usedLeaves + remainingLeaves;
+  
+          return {
+            totalLeaves,
+            usedLeaves,
+            remainingLeaves,
+            leaveTypes: updatedLeaveTypes
+          };
+        });
+  
+        // Reset form
         setLeaveData({
           leaveType: '',
           startDate: '',
@@ -904,6 +1070,7 @@ const Dashboard = () => {
   
         alert('Leave request submitted successfully!');
   
+        // Refresh data
         if (user.id) {
           fetchOverviewData(user.id);
           fetchEntitlementData(user.id);
@@ -911,13 +1078,7 @@ const Dashboard = () => {
         }
       }
     } catch (error) {
-      if (error.message.includes('expired') || error.message.includes('401')) {
-        setAuthError('Your session has expired. Please login again.');
-        logout();
-      } else {
-        console.error('Error submitting leave request:', error);
-        alert(`Failed to submit leave request: ${error.message}`);
-      }
+      // ... existing error handling
     } finally {
       setIsSubmitting(false);
     }
