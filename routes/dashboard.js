@@ -370,215 +370,173 @@
     }
   };
 
-  // Backend: Enhanced validation with detailed error messages
-  router.post('/apply', authenticateToken, async (req, res) => {
-    try {
-      console.log('=== LEAVE APPLICATION DEBUG ===');
-      console.log('Request body:', req.body);
-      console.log('User from token:', req.user);
-      
-      const { leaveType, startDate, endDate, reason } = req.body;
-      const userId = req.user.id;
+ // Backend: Enhanced validation with detailed error messages, NO overlapping check
+router.post('/apply', authenticateToken, async (req, res) => {
+  try {
+    console.log('=== LEAVE APPLICATION DEBUG ===');
+    console.log('Request body:', req.body);
+    console.log('User from token:', req.user);
 
-      // Enhanced field validation with specific error messages
-      const missingFields = [];
-      if (!leaveType) missingFields.push('leaveType');
-      if (!startDate) missingFields.push('startDate');
-      if (!endDate) missingFields.push('endDate');
-      if (!reason) missingFields.push('reason');
+    const { leaveType, startDate, endDate, reason } = req.body;
+    const userId = req.user.id;
 
-      if (missingFields.length > 0) {
-        console.log('Missing fields:', missingFields);
-        return res.status(400).json({
-          success: false,
-          error: `Missing required fields: ${missingFields.join(', ')}`,
-          missingFields
-        });
-      }
+    // Enhanced field validation with specific error messages
+    const missingFields = [];
+    if (!leaveType) missingFields.push('leaveType');
+    if (!startDate) missingFields.push('startDate');
+    if (!endDate) missingFields.push('endDate');
+    if (!reason) missingFields.push('reason');
 
-      // Enhanced date validation
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Set to start of day for comparison
-
-      console.log('Date validation:', {
-        startDate,
-        endDate,
-        startParsed: start.toISOString(),
-        endParsed: end.toISOString(),
-        todayForComparison: today.toISOString(),
-        startValid: !isNaN(start),
-        endValid: !isNaN(end)
-      });
-
-      // Check for invalid dates
-      if (isNaN(start) || isNaN(end)) {
-        console.log('Invalid date format detected');
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid date format. Please use YYYY-MM-DD format',
-          details: {
-            startDateValid: !isNaN(start),
-            endDateValid: !isNaN(end)
-          }
-        });
-      }
-
-      // Check if start date is in the past
-      if (start < today) {
-        console.log('Start date is in the past');
-        return res.status(400).json({
-          success: false,
-          error: 'Start date cannot be in the past',
-          details: {
-            startDate: start.toISOString(),
-            today: today.toISOString()
-          }
-        });
-      }
-
-      // Check if end date is before start date
-      if (end < start) {
-        console.log('End date is before start date');
-        return res.status(400).json({
-          success: false,
-          error: 'End date cannot be before start date',
-          details: {
-            startDate: start.toISOString(),
-            endDate: end.toISOString()
-          }
-        });
-      }
-
-      // Check for overlapping requests
-      console.log('Checking for overlapping requests...');
-      const overlappingSnapshot = await db.collection('leaveRequests')
-        .where('userId', '==', userId)
-        .where('status', 'in', ['pending', 'approved'])
-        .get();
-
-      console.log(`Found ${overlappingSnapshot.size} existing requests to check`);
-
-      let hasOverlap = false;
-      let overlappingRequest = null;
-
-      overlappingSnapshot.forEach(doc => {
-        const data = doc.data();
-        const existingStart = new Date(data.startDate);
-        const existingEnd = new Date(data.endDate);
-
-        console.log('Checking overlap with:', {
-          existingId: doc.id,
-          existingStart: existingStart.toISOString(),
-          existingEnd: existingEnd.toISOString(),
-          existingStatus: data.status
-        });
-
-        if ((start <= existingEnd && end >= existingStart)) {
-          hasOverlap = true;
-          overlappingRequest = {
-            id: doc.id,
-            startDate: data.startDate,
-            endDate: data.endDate,
-            status: data.status
-          };
-          console.log('Overlap detected!', overlappingRequest);
-        }
-      });
-
-      if (hasOverlap) {
-        console.log('Rejecting due to overlap');
-        return res.status(400).json({
-          success: false,
-          error: 'You have overlapping leave requests for the selected dates',
-          overlappingRequest
-        });
-      }
-
-      // Calculate leave days
-      const leaveDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
-      console.log('Calculated leave days:', leaveDays);
-
-      // Check entitlement (with error handling for the internal API call)
-      console.log('Checking entitlement...');
-      try {
-        const entitlementResponse = await fetch(`${req.protocol}://${req.get('host')}/dashboard/entitlement/${userId}`, {
-          headers: { 'Authorization': req.headers.authorization }
-        });
-
-        if (entitlementResponse.ok) {
-          const entitlementData = await entitlementResponse.json();
-          const leaveTypeData = entitlementData.data.leaveTypes.find(lt => lt.name === leaveType);
-
-          console.log('Entitlement check:', {
-            leaveType,
-            leaveTypeData,
-            requestedDays: leaveDays
-          });
-
-          if (leaveTypeData && leaveTypeData.remaining < leaveDays) {
-            console.log('Insufficient leave balance');
-            return res.status(400).json({
-              success: false,
-              error: `Insufficient ${leaveType} leave balance. Available: ${leaveTypeData.remaining}, Requested: ${leaveDays}`,
-              entitlementDetails: {
-                available: leaveTypeData.remaining,
-                requested: leaveDays,
-                leaveType
-              }
-            });
-          }
-        } else {
-          console.warn('Entitlement check failed, proceeding without balance validation');
-        }
-      } catch (entitlementError) {
-        console.warn('Entitlement check error:', entitlementError);
-        // Continue without entitlement check if it fails
-      }
-
-      // Create the leave request
-      const leaveRequest = {
-        userId,
-        leaveType,
-        startDate,
-        endDate,
-        reason,
-        leaveDays,
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      console.log('Creating leave request:', leaveRequest);
-
-      const docRef = await db.collection('leaveRequests').add(leaveRequest);
-      console.log('Leave request created with ID:', docRef.id);
-
-      return res.status(201).json({
-        success: true,
-        message: 'Leave request submitted successfully',
-        data: {
-          id: docRef.id,
-          ...leaveRequest
-        }
-      });
-
-    } catch (error) {
-      console.error('=== LEAVE APPLICATION ERROR ===');
-      console.error('Detailed error:', error);
-      console.error('Error stack:', error.stack);
-      
-      return res.status(500).json({
+    if (missingFields.length > 0) {
+      console.log('Missing fields:', missingFields);
+      return res.status(400).json({
         success: false,
-        error: 'Failed to submit leave request',
-        details: process.env.NODE_ENV === 'development' ? {
-          message: error.message,
-          stack: error.stack
-        } : undefined
+        error: `Missing required fields: ${missingFields.join(', ')}`,
+        missingFields
       });
     }
-  });
+
+    // Enhanced date validation
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Set to start of day for comparison
+
+    console.log('Date validation:', {
+      startDate,
+      endDate,
+      startParsed: start.toISOString(),
+      endParsed: end.toISOString(),
+      todayForComparison: today.toISOString(),
+      startValid: !isNaN(start),
+      endValid: !isNaN(end)
+    });
+
+    // Check for invalid dates
+    if (isNaN(start) || isNaN(end)) {
+      console.log('Invalid date format detected');
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid date format. Please use YYYY-MM-DD format',
+        details: {
+          startDateValid: !isNaN(start),
+          endDateValid: !isNaN(end)
+        }
+      });
+    }
+
+    // Check if start date is in the past
+    if (start < today) {
+      console.log('Start date is in the past');
+      return res.status(400).json({
+        success: false,
+        error: 'Start date cannot be in the past',
+        details: {
+          startDate: start.toISOString(),
+          today: today.toISOString()
+        }
+      });
+    }
+
+    // Check if end date is before start date
+    if (end < start) {
+      console.log('End date is before start date');
+      return res.status(400).json({
+        success: false,
+        error: 'End date cannot be before start date',
+        details: {
+          startDate: start.toISOString(),
+          endDate: end.toISOString()
+        }
+      });
+    }
+
+    // *** OVERLAPPING LEAVE CHECK REMOVED ***
+
+    // Calculate leave days
+    const leaveDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
+    console.log('Calculated leave days:', leaveDays);
+
+    // Check entitlement (with error handling for the internal API call)
+    console.log('Checking entitlement...');
+    try {
+      const entitlementResponse = await fetch(`${req.protocol}://${req.get('host')}/dashboard/entitlement/${userId}`, {
+        headers: { 'Authorization': req.headers.authorization }
+      });
+
+      if (entitlementResponse.ok) {
+        const entitlementData = await entitlementResponse.json();
+        const leaveTypeData = entitlementData.data.leaveTypes.find(lt => lt.name === leaveType);
+
+        console.log('Entitlement check:', {
+          leaveType,
+          leaveTypeData,
+          requestedDays: leaveDays
+        });
+
+        if (leaveTypeData && leaveTypeData.remaining < leaveDays) {
+          console.log('Insufficient leave balance');
+          return res.status(400).json({
+            success: false,
+            error: `Insufficient ${leaveType} leave balance. Available: ${leaveTypeData.remaining}, Requested: ${leaveDays}`,
+            entitlementDetails: {
+              available: leaveTypeData.remaining,
+              requested: leaveDays,
+              leaveType
+            }
+          });
+        }
+      } else {
+        console.warn('Entitlement check failed, proceeding without balance validation');
+      }
+    } catch (entitlementError) {
+      console.warn('Entitlement check error:', entitlementError);
+      // Continue without entitlement check if it fails
+    }
+
+    // Create the leave request
+    const leaveRequest = {
+      userId,
+      leaveType,
+      startDate,
+      endDate,
+      reason,
+      leaveDays,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    console.log('Creating leave request:', leaveRequest);
+
+    const docRef = await db.collection('leaveRequests').add(leaveRequest);
+    console.log('Leave request created with ID:', docRef.id);
+
+    return res.status(201).json({
+      success: true,
+      message: 'Leave request submitted successfully',
+      data: {
+        id: docRef.id,
+        ...leaveRequest
+      }
+    });
+
+  } catch (error) {
+    console.error('=== LEAVE APPLICATION ERROR ===');
+    console.error('Detailed error:', error);
+    console.error('Error stack:', error.stack);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to submit leave request',
+      details: process.env.NODE_ENV === 'development' ? {
+        message: error.message,
+        stack: error.stack
+      } : undefined
+    });
+  }
+});
+
 
     // Temporary workaround (remove after index is active)
     router.get('/announcements', authenticateToken, async (req, res) => {

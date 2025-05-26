@@ -112,8 +112,8 @@
     if (process.env.NODE_ENV === 'development') {
       app.post('/seed-data', async (req, res) => {
         try {
-          // Sample announcements
-          const announcements = [
+        // Sample announcements
+         const announcements = [
             {
               title: "System Maintenance",
               message: "The leave management system will be unavailable on Sunday, April 27th from 02:00-04:00 for scheduled maintenance.",
