@@ -6,7 +6,7 @@ import { Calendar, Clock } from "lucide-react";
 
 const News = ({ activeMenu, setActiveMenu }) => {
   const [newsData, setNewsData] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setDataLoading] = useState(true);
 
   useEffect(() => {
     const fetchNews = async () => {
@@ -16,7 +16,7 @@ const News = ({ activeMenu, setActiveMenu }) => {
       } catch (error) {
         console.error("Error fetching news:", error);
       } finally {
-        setLoading(false);
+        setDataLoading(false);
       }
     };
 

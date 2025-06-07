@@ -1,43 +1,68 @@
-import React, { useState } from "react";
-import { login } from "../services/api";
+// Updated Login.jsx
+import React, { useState, useContext } from "react";
+import { firebaseLogin } from "../services/api";
 import { useNavigate } from "react-router-dom";
-import "../styles/LoginStyles.css"; 
+import "../styles/LoginStyles.css";
+import { useAuth } from "../context/AuthContext";
+import { authAPI } from "../utils/auth"; // Add this import
 
 const Login = () => {
+  const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState(""); 
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setError(""); 
-  
+    setError("");
+    setIsLoading(true);
+
     try {
-      const res = await login({ email, password });
-      // Change from "token" to "accessToken" to match backend expectation
-      localStorage.setItem("accessToken", res.data.accessToken);
-      localStorage.setItem("refreshToken", res.data.refreshToken); // Add this line
-      localStorage.setItem("user", JSON.stringify(res.data.user));
-      
-      // Debug log
-      console.log("Tokens stored:", {
-        accessToken: localStorage.getItem("accessToken"),
-        refreshToken: localStorage.getItem("refreshToken"),
-        user: localStorage.getItem("user")
-      });
-      
-      navigate("/dashboard");
-    } catch (error) {
-      if (error.response) {
-        if (error.response.status === 429) {
-          setError("Too many login attempts. Please wait 15 minutes before trying again.");
-        } else {
-          setError(error.response.data.error || "Login failed. Please check your credentials.");
-        }
-      } else {
-        setError("Network error. Please try again later.");
+      const res = await firebaseLogin(email, password);
+      console.log("✅ Firebase login response:", res);
+
+      if (!res || !res.uid || !res.token) {
+        throw new Error("Invalid response from Firebase.");
       }
+
+      // Use the new authAPI method to store Firebase auth data
+      authAPI.storeFirebaseAuth(
+        res.uid,
+        res.email,
+        res.token,
+        {
+          name: res.displayName || res.email.split('@')[0] || 'User',
+          rank: res.rank || '',
+          role: res.role || 'soldier'
+        }
+      );
+
+      // Update auth context
+      login(res.token, { 
+        uid: res.uid, 
+        email: res.email,
+        name: res.displayName || res.email.split('@')[0] || 'User'
+      });
+
+      console.log("✅ Stored user and token, navigating...");
+      
+      // Debug storage to verify
+      authAPI.debugStorage();
+      
+      navigate("/dashboard", {
+        replace: true,
+        state: { fromLogin: true }
+      });
+    } catch (error) {
+      console.error("❌ Login error:", error);
+      setError(error.message || "Login failed. Please try again.");
+      
+      // Clear any partial auth data on failure using authAPI
+      authAPI.logout();
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -64,8 +89,14 @@ const Login = () => {
             required
             className="login-input"
           />
-          {error && <p className="error-message">{error}</p>} {/* Show error */}
-          <button type="submit" className="login-button">Login</button>
+          {error && <p className="error-message">{error}</p>}
+          <button 
+            type="submit" 
+            className="login-button"
+            disabled={isLoading}
+          >
+            {isLoading ? "Logging in..." : "Login"}
+          </button>
         </form>
       </div>
     </div>

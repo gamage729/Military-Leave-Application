@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useContext } from "react";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import * as solidIcons from '@fortawesome/free-solid-svg-icons';
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation } from 'react-router-dom';
 import LeavesRemaining from "./LeavesRemaining"; 
 import Sidebar from "./Sidebar";
 import FloatingChatBot from "./FloatingChatBot";
 import "../styles/DashboardStyles.css";
-import axios from 'axios';
-
+import { useAuth } from "../context/AuthContext";
+import api, { authAPI } from '../utils/auth';
 
 // Access icons
 const {
@@ -37,187 +37,31 @@ const {
   faSpinner
 } = solidIcons;
 
-
-
 // API configuration
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
-// Modify your API calls to use the correct token
-const apiCall = async (endpoint, options = {}) => {
-  const token = localStorage.getItem('accessToken');
-
-  // Debug: Log token info
-  console.log('API Call Debug:', {
-    endpoint,
-    tokenExists: !!token,
-    tokenPreview: token ? `${token.substring(0, 20)}...` : 'No token',
-    tokenType: typeof token
-  });
-
-  if (!token) {
-    console.error('No access token found');
-    throw new Error('No access token available');
-  }
-
-  // Setup default headers
-  const defaultHeaders = {
-    Authorization: `Bearer ${token}`
-  };
-
-  // Only set Content-Type if body is JSON
-  const isJson = options.body && typeof options.body === 'string' && options.body.trim().startsWith('{');
-  if (isJson) {
-    defaultHeaders['Content-Type'] = 'application/json';
-  }
-
-  const finalHeaders = {
-    ...defaultHeaders,
-    ...(options.headers || {})
-  };
-
-  // Debug: Log request details
-  console.log('Request Details:', {
-    url: `${API_BASE_URL}${endpoint}`,
-    method: options.method || 'GET',
-    headers: finalHeaders,
-    body: options.body ? JSON.parse(options.body) : undefined
-  });
-
+// Create API call function that takes logout as parameter
+const createApiCall = (logoutFn) => async (endpoint, options = {}) => {
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers: finalHeaders
-    });
-
-    // Debug: Log response metadata
-    console.log('Response Debug:', {
-      status: response.status,
-      statusText: response.statusText,
-      url: response.url
-    });
-
-    if (response.status === 403) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error('403 Forbidden:', errorData);
-      throw new Error(`403 Forbidden: ${errorData.message || 'Access denied'}`);
-    }
-
-    if (response.status === 401) {
-      console.warn('401 Unauthorized - Attempting token refresh...');
-      const refreshToken = localStorage.getItem('refreshToken');
-      if (refreshToken) {
-        const refreshResponse = await fetch(`${API_BASE_URL}/auth/refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: refreshToken })
-        });
-
-        if (refreshResponse.ok) {
-          const { accessToken } = await refreshResponse.json();
-          localStorage.setItem('accessToken', accessToken);
-          console.log('Token refreshed. Retrying original request...');
-          return apiCall(endpoint, options); // Retry
-        }
-      }
-
-      // Token refresh failed
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-      window.location.href = '/login';
-      return;
-    }
-
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      console.error('API Error Response Body:', data);
-      throw new Error(`HTTP ${response.status}: ${data.message || response.statusText}`);
-    }
-    if (!response.ok) {
-      const errorBody = await response.json().catch(() => ({}));
-      console.error('API Error Response Body:', errorBody);
-      throw new Error(`HTTP ${response.status}: ${errorBody.message || response.statusText}`);
-    }
-
-    return data;
+    console.log("🔍 Making API call to:", endpoint);
+    
+    // Use the configured axios instance instead of fetch
+    const response = await api.get(endpoint, options);
+    
+    console.log("✅ API call successful");
+    return response.data;
   } catch (error) {
-    console.error('API call failed:', error);
+    console.error(`❌ API call to ${endpoint} failed:`, error);
+    
+    // The auth.js interceptor will handle 401/403 errors automatically
+    // But we still need to handle the final logout case
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      console.log("🔄 Authentication failed - logging out");
+      if (logoutFn) logoutFn();
+    }
+    
     throw error;
   }
-};
-
-const validateTokenAndUser = () => {
-  // 1. Retrieve tokens and user data
-  const accessToken = localStorage.getItem('accessToken');
-  const refreshToken = localStorage.getItem('refreshToken');
-  const storedUser = localStorage.getItem('user');
-
-  // 2. Debug logging (consider removing in production)
-  console.log('Token Validation:', {
-    hasAccessToken: !!accessToken,
-    hasRefreshToken: !!refreshToken,
-    hasUser: !!storedUser,
-    accessTokenPrefix: accessToken?.slice(0, 10), // Safer than logging full length
-    refreshTokenPrefix: refreshToken?.slice(0, 10)
-  });
-
-  // 3. Basic presence check
-  if (!accessToken || !refreshToken || !storedUser) {
-    console.warn('Missing authentication data');
-    return null;
-  }
-
-  // 4. Parse and validate user data
-  let user;
-  try {
-    user = JSON.parse(storedUser);
-    
-    // Validate required user fields
-    if (!user?.id || typeof user.id !== 'string') {
-      console.error('Invalid user ID');
-      return null;
-    }
-    
-    if (!user?.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user.email)) {
-      console.error('Invalid user email');
-      return null;
-    }
-
-    console.log('Valid User Data:', {
-      id: user.id.slice(0, 8) + '...', // Truncate for security
-      email: user.email,
-      role: user.role || 'unknown'
-    });
-  } catch (error) {
-    console.error('User data parsing failed:', error);
-    return null;
-  }
-
-  // 5. Basic JWT validation (optional)
-  try {
-    if (!accessToken.includes('.') || accessToken.split('.').length !== 3) {
-      console.error('Malformed access token');
-      return null;
-    }
-
-    // Check token expiration if it's a JWT
-    const payload = JSON.parse(atob(accessToken.split('.')[1]));
-    if (payload.exp && payload.exp < Date.now() / 1000) {
-      console.warn('Token expired');
-      return null;
-    }
-
-    // Verify token matches user (basic check)
-    if (payload.sub && payload.sub !== user.id) {
-      console.error('Token-user mismatch');
-      return null;
-    }
-  } catch (error) {
-    console.warn('Token validation warning:', error);
-    // Continue even if token validation fails (server will verify)
-  }
-
-  return user;
 };
 
 // Calendar Component
@@ -549,11 +393,12 @@ const UserProfile = ({ user, logout }) => {
 };
 
 const Dashboard = () => {
+  const { user: contextUser, logout: contextLogout } = useContext(AuthContext);
   const navigate = useNavigate();
   const location = useLocation();
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [loading, setLoading] = useState({
+  const [dataLoading, setDataLoading] = useState({
     overview: true,
     entitlement: true,
     announcements: true,
@@ -561,6 +406,42 @@ const Dashboard = () => {
   });
   const [error, setError] = useState({});
   const [authError, setAuthError] = useState(null);
+
+  // Create API call function with logout
+  const apiCall = createApiCall(contextLogout);
+
+  const validateTokenAndUser = () => {
+    console.log("=== Token Validation ===");
+    
+    // Use the auth API to check authentication
+    if (!authAPI.isAuthenticated()) {
+      console.log("Not authenticated - redirecting to login");
+      return null;
+    }
+    
+    const user = authAPI.getCurrentUser();
+    console.log("Current user:", user);
+    
+    if (!user) {
+      console.log("No user data found");
+      return null;
+    }
+    
+    // Normalize the user object
+    const normalizedUser = {
+      ...user,
+      id: user.id || user.uid,
+      name: user.name || user.displayName || 'Unknown User',
+      email: user.email
+    };
+    
+    if (!normalizedUser.id || !normalizedUser.email) {
+      console.log("User missing required fields");
+      return null;
+    }
+    
+    return normalizedUser;
+  };
   
   // State for API data
   const [overviewData, setOverviewData] = useState({
@@ -597,50 +478,43 @@ const Dashboard = () => {
     id: ""
   });
 
-  const logout = () => {
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("refreshToken");
-    localStorage.removeItem("user");
-    navigate("/login");
-  };
   const ensureValidToken = async () => {
-    const accessToken = localStorage.getItem('accessToken');
-    const refreshToken = localStorage.getItem('refreshToken');
+    const token = localStorage.getItem('token');
     
-    // Basic validation
-    if (!accessToken || !refreshToken) {
-      console.error('Missing tokens - access:', !!accessToken, 'refresh:', !!refreshToken);
-      throw new Error('Authentication required');
+    if (!token) {
+      throw new Error('No authentication token found');
     }
-  
-    // Basic JWT format validation
-    if (!/^[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*$/.test(accessToken)) {
-      console.warn('Malformed access token structure');
-      await refreshAccessToken();
-      return;
+    
+    // For Firebase tokens, we need to validate differently
+    if (token.startsWith('eyJh')) {
+      // This is likely a Firebase ID token
+      try {
+        // Firebase tokens can be validated by attempting to use them
+        // If expired, Firebase will return 401 and we handle it in the API call
+        return token;
+      } catch (error) {
+        console.error('Firebase token validation error:', error);
+        throw error;
+      }
     }
-  
+    
+    // For other JWT tokens
     try {
-      const tokenPayload = JSON.parse(atob(accessToken.split('.')[1]));
+      const payload = JSON.parse(atob(token.split('.')[1]));
       const currentTime = Math.floor(Date.now() / 1000);
       
-      // Validate payload structure
-      if (!tokenPayload.exp) {
-        console.warn('Token missing expiration - forcing refresh');
-        await refreshAccessToken();
-        return;
+      if (payload.exp && payload.exp < currentTime) {
+        console.log('Token expired - requiring re-authentication');
+        throw new Error('Token expired');
       }
-      
-      // Refresh if token expires soon or is already expired
-      if (tokenPayload.exp - currentTime < 300) {
-        console.log(`Token expiring soon (${tokenPayload.exp - currentTime}s remaining)`);
-        await refreshAccessToken();
-      }
+      return token;
     } catch (error) {
       console.error('Token validation error:', error);
-      await refreshAccessToken();
+      throw error;
     }
   };
+
+
   
   const refreshAccessToken = async (retryCount = 0) => {
     const MAX_RETRIES = 2;
@@ -730,11 +604,9 @@ const Dashboard = () => {
   // Enhanced fetch functions with auth error handling
   const fetchOverviewData = async (userId) => {
     try {
-      setLoading(prev => ({ ...prev, overview: true }));
+      setDataLoading(prev => ({ ...prev, overview: true }));
       
-      // Ensure we have a valid token before making the call
-      await ensureValidToken();
-      
+      // No need to manually check tokens - the interceptor handles it
       const response = await apiCall(`/dashboard/overview/${userId}`);
       
       if (response.success) {
@@ -758,19 +630,17 @@ const Dashboard = () => {
       console.error('Error fetching overview data:', err);
       setError(prev => ({ ...prev, overview: err.message }));
     } finally {
-      setLoading(prev => ({ ...prev, overview: false }));
+      setDataLoading(prev => ({ ...prev, overview: false }));
     }
   };
 
   const fetchEntitlementData = async (userId) => {
     try {
-      setLoading(prev => ({ ...prev, entitlement: true }));
+      setDataLoading(prev => ({ ...prev, entitlement: true }));
       const response = await apiCall(`/dashboard/entitlement/${userId}`);
   
       if (response.success) {
         const leaveTypes = response.data.leaveTypes;
-  
-        //  Dynamically sum used + remaining for all types
         const usedLeaves = leaveTypes.reduce((sum, lt) => sum + lt.used, 0);
         const remainingLeaves = leaveTypes.reduce((sum, lt) => sum + lt.remaining, 0);
         const totalLeaves = usedLeaves + remainingLeaves;
@@ -785,43 +655,34 @@ const Dashboard = () => {
         setError(prev => ({ ...prev, entitlement: null }));
       }
     } catch (err) {
-      if (err.message.includes('expired') || err.message.includes('401')) {
-        setAuthError('Your session has expired. Please login again.');
-        logout();
-      } else {
-        console.error('Error fetching entitlement data:', err);
-        setError(prev => ({ ...prev, entitlement: err.message }));
-      }
+      console.error('Error fetching entitlement data:', err);
+      setError(prev => ({ ...prev, entitlement: err.message }));
     } finally {
-      setLoading(prev => ({ ...prev, entitlement: false }));
+      setDataLoading(prev => ({ ...prev, entitlement: false }));
     }
   };
   
   
   const fetchAnnouncements = async () => {
     try {
-      setLoading(prev => ({ ...prev, announcements: true }));
+      setDataLoading(prev => ({ ...prev, announcements: true }));
       const response = await apiCall('/dashboard/announcements');
+      
       if (response.success) {
         setAnnouncementsData(response.data);
         setError(prev => ({ ...prev, announcements: null }));
       }
     } catch (err) {
-      if (err.message.includes('expired') || err.message.includes('401')) {
-        setAuthError('Your session has expired. Please login again.');
-        logout();
-      } else {
-        console.error('Error fetching announcements:', err);
-        setError(prev => ({ ...prev, announcements: err.message }));
-      }
+      console.error('Error fetching announcements:', err);
+      setError(prev => ({ ...prev, announcements: err.message }));
     } finally {
-      setLoading(prev => ({ ...prev, announcements: false }));
+      setDataLoading(prev => ({ ...prev, announcements: false }));
     }
   };
 
   const fetchPreviousLeaves = async (userId) => {
     try {
-      setLoading(prev => ({ ...prev, previousLeaves: true }));
+      setDataLoading(prev => ({ ...prev, previousLeaves: true }));
       const response = await apiCall(`/dashboard/previous-leaves/${userId}?limit=5`);
       
       if (response.success) {
@@ -842,118 +703,45 @@ const Dashboard = () => {
         setError(prev => ({ ...prev, previousLeaves: null }));
       }
     } catch (err) {
-      if (err.message.includes('expired') || err.message.includes('401')) {
-        setAuthError('Your session has expired. Please login again.');
-        logout();
-      } else {
-        console.error('Error fetching previous leaves:', err);
-        setError(prev => ({ ...prev, previousLeaves: err.message }));
-      }
+      console.error('Error fetching previous leaves:', err);
+      setError(prev => ({ ...prev, previousLeaves: err.message }));
     } finally {
-      setLoading(prev => ({ ...prev, previousLeaves: false }));
+      setDataLoading(prev => ({ ...prev, previousLeaves: false }));
     }
   };
 
   useEffect(() => {
     const initializeDashboard = async () => {
-      // Debug logging
       console.log("=== Dashboard Initialization ===");
       
-      // 1. Token Validation
-      const accessToken = localStorage.getItem("accessToken");
-      const refreshToken = localStorage.getItem("refreshToken");
-      const storedUser = localStorage.getItem("user");
-      
-      console.log("Auth Status:", {
-        accessToken: !!accessToken,
-        refreshToken: !!refreshToken,
-        storedUser: !!storedUser
-      });
-  
-      // 2. Handle missing tokens
-      if (!accessToken || !refreshToken) {
-        console.log("Missing tokens - redirecting to login");
+      // 1. Validate token and get user
+      const currentUser = validateTokenAndUser();
+      if (!currentUser) {
+        console.log("Invalid token or user - redirecting to login");
         navigate("/login");
         return;
       }
   
-      // 3. Parse and validate user data
-      let currentUser = {
-        name: "Loading...",
-        email: "",
-        rank: "", 
-        role: "soldier",
-        id: ""
-      };
-  
-      if (storedUser) {
-        try {
-          currentUser = JSON.parse(storedUser);
-          console.log("User Data:", {
-            id: currentUser.id,
-            name: currentUser.name,
-            role: currentUser.role
-          });
-  
-          if (!currentUser.id) {
-            throw new Error("Invalid user data - missing ID");
-          }
-        } catch (error) {
-          console.error("User data error:", error);
-          localStorage.clear();
-          navigate("/login");
-          return;
-        }
-      }
-  
-      // 4. Set user state
+      // 2. Set user state
       setUser(currentUser);
   
-      // 5. Token refresh check (if token is about to expire)
+      console.log("Starting data fetch for user:", currentUser.id);
+      
+      // 3. Fetch all data - the auth interceptor will handle token refresh automatically
       try {
-        await ensureValidToken();
+        await Promise.allSettled([
+          fetchOverviewData(currentUser.id),
+          fetchEntitlementData(currentUser.id),
+          fetchPreviousLeaves(currentUser.id),
+          fetchAnnouncements()
+        ]);
       } catch (error) {
-        console.error("Token validation failed:", error);
-        logout();
-        return;
+        console.error("Data fetch error:", error);
+        // The interceptor already handled auth errors, so this is likely a network issue
+        setError(prev => ({ ...prev, general: error.message }));
       }
   
-      // 6. Data fetching with improved error handling
-      const fetchData = async () => {
-        try {
-          console.log("Starting data fetch for user:", currentUser.id);
-          
-          // Sequential fetching with delays
-          await Promise.all([
-            fetchOverviewData(currentUser.id),
-            new Promise(resolve => setTimeout(resolve, 500)).then(() => fetchEntitlementData(currentUser.id)),
-            new Promise(resolve => setTimeout(resolve, 1000)).then(() => fetchPreviousLeaves(currentUser.id)),
-            new Promise(resolve => setTimeout(resolve, 1500)).then(() => fetchAnnouncements())
-          ]);
-  
-        } catch (error) {
-          console.error("Data fetch error:", error);
-          
-          // Handle specific error cases
-          if (error?.response?.status === 401) {
-            try {
-              console.log("Attempting token refresh after 401 error");
-              await refreshAccessToken();
-              // Retry the failed request(s)
-              if (error.config?.url.includes("overview")) {
-                await fetchOverviewData(currentUser.id);
-              }
-            } catch (refreshError) {
-              console.error("Token refresh failed:", refreshError);
-              logout();
-            }
-          }
-        }
-      };
-  
-      await fetchData();
-  
-      // 7. Handle scroll behavior (kept from your original)
+      // 4. Handle scroll behavior
       if (location.state?.scrollToApplyForLeave) {
         setTimeout(() => {
           const element = document.getElementById('apply-for-leave');
@@ -965,13 +753,8 @@ const Dashboard = () => {
     };
   
     initializeDashboard();
+  }, [navigate, location.state, contextLogout]);
   
-    // Cleanup function
-    return () => {
-      
-    };
-  }, [navigate, location.state]);
-
   // File handling functions (unchanged)
   const handleFileChange = (e) => {
     const files = e.target.files;
@@ -1103,7 +886,7 @@ const Dashboard = () => {
       <div className="main-content">
         <div className="header" id="dashboard-top">
           <h1>Dashboard</h1>
-          <UserProfile user={user} logout={logout} />
+          <UserProfile user={user} logout={contextLogout} />
         </div>
 
         {/* Auth Error Display */}
@@ -1123,7 +906,7 @@ const Dashboard = () => {
               <img src="/icons/total-requests.png" alt="Total Requests" />
             </div>
             <h3>Total Leave Requests</h3>
-            <h2>{loading.overview ? '...' : overviewData.total}</h2>
+            <h2>{dataLoading.overview ? '...' : overviewData.total}</h2>
             <p>All time requests</p>
           </div>
           <div className="stat-card">
@@ -1131,7 +914,7 @@ const Dashboard = () => {
               <img src="/icons/approved.png" alt="Approved" />
             </div>
             <h3>Approved</h3>
-            <h2>{loading.overview ? '...' : overviewData.approved}</h2>
+            <h2>{dataLoading.overview ? '...' : overviewData.approved}</h2>
             <p>{approvalRate}% approval rate</p>
           </div>
           <div className="stat-card">
@@ -1139,7 +922,7 @@ const Dashboard = () => {
               <img src="/icons/pending1.png" alt="Pending" />
             </div>
             <h3>Pending</h3>
-            <h2>{loading.overview ? '...' : overviewData.pending}</h2>
+            <h2>{dataLoading.overview ? '...' : overviewData.pending}</h2>
             <p>Awaiting approval</p>
           </div>
           <div className="stat-card">
@@ -1147,7 +930,7 @@ const Dashboard = () => {
               <img src="/icons/rejected.png" alt="Rejected" />
             </div>  
             <h3>Rejected</h3>
-            <h2>{loading.overview ? '...' : overviewData.rejected}</h2>
+            <h2>{dataLoading.overview ? '...' : overviewData.rejected}</h2>
             <p>Need revision</p>
           </div>
         </div>
@@ -1174,7 +957,7 @@ const Dashboard = () => {
               <h2>Leave Overview</h2>
             </div>
             <div className="panel-content">
-              {loading.overview ? (
+              {dataLoading.overview ? (
                 <div className="loading-section">
                   <FontAwesomeIcon icon={faSpinner} spin />
                   <p>Loading overview...</p>
@@ -1228,7 +1011,7 @@ const Dashboard = () => {
             <div className="announcements-section">
               <Announcements 
                 announcements={announcementsData} 
-                loading={loading.announcements}
+                loading={dataLoading.announcements}
               />
             </div>
           </div>
@@ -1236,7 +1019,7 @@ const Dashboard = () => {
         
         {/* Leaves Remaining section */}
         <div className="leaves-remaining-section">
-          {loading.entitlement ? (
+          {dataLoading.entitlement ? (
             <div className="loading-section">
               <FontAwesomeIcon icon={faSpinner} spin />
               <p>Loading leave balances...</p>
@@ -1418,7 +1201,7 @@ const Dashboard = () => {
             
             {/* Previous Leaves Table */}
             <div className="previous-leaves-section">
-              {loading.previousLeaves ? (
+              {dataLoading.previousLeaves ? (
                 <div className="loading-section">
                   <FontAwesomeIcon icon={faSpinner} spin />
                   <p>Loading leave history...</p>
