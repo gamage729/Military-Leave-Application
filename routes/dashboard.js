@@ -1,616 +1,477 @@
-    const express = require('express');
-    const db = require('../firebase');
-    const { authenticateToken } = require('../middleware/auth');
-    const fetch = require('node-fetch');
-    const router = require('express').Router();
+const express = require('express');
+const { db, auth, admin } = require('../firebase');
+const { authenticateToken } = require('../middleware/auth');
+const router = express.Router();
+const rateLimit = require('express-rate-limit');
+const { param, query, body } = require('express-validator');
 
+// Rate limiting middleware
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: {
+    success: false,
+    error: 'Too many requests from this IP, please try again after 15 minutes'
+  }
+});
 
-    // Helper function to get previous leaves for a user
-    async function getPreviousLeaves(userId) {
-      try {
-        const snapshot = await db.collection('leaveRequests')
-          .where('userId', '==', userId)
-          .get();
+// Apply rate limiting to all dashboard routes
+router.use(apiLimiter);
 
-        const leaves = [];
-        snapshot.forEach(doc => leaves.push({ id: doc.id, ...doc.data() }));
+// Authentication middleware
+router.use(authenticateToken);
 
-        return leaves;
-      } catch (error) {
-        console.error('Error fetching previous leaves:', error);
-        throw new Error('Failed to fetch previous leaves');
-      }
+// Simplified logging middleware
+router.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+  console.log('Auth Header:', req.headers.authorization ? 'Present' : 'Missing');
+  console.log('Authenticated User:', req.user?.uid || 'None');
+  next();
+});
+
+// Utility function for date validation
+const validateDateRange = (startDate, endDate) => {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (isNaN(start) || isNaN(end)) {
+    return { valid: false, error: 'Invalid date format' };
+  }
+  if (start < today) {
+    return { valid: false, error: 'Start date cannot be in the past' };
+  }
+  if (end < start) {
+    return { valid: false, error: 'End date cannot be before start date' };
+  }
+  return { valid: true };
+};
+
+// Helper functions for data fetching
+const getOverviewData = async (userId) => {
+  const [requestsSnapshot, announcementsSnapshot] = await Promise.all([
+    db.collection('leaveRequests')
+      .where('userId', '==', userId)
+      .get(),
+    db.collection('announcements')
+      .where('isActive', '==', true)
+      .orderBy('createdAt', 'desc')
+      .limit(3)
+      .get()
+  ]);
+
+  const requests = requestsSnapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data()
+  }));
+
+  const announcements = announcementsSnapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data()
+  }));
+
+  return {
+    total: requests.length,
+    approved: requests.filter(r => r.status === 'approved').length,
+    pending: requests.filter(r => r.status === 'pending').length,
+    rejected: requests.filter(r => r.status === 'rejected').length,
+    leaveDays: requests
+      .filter(r => r.status === 'approved' && new Date(r.endDate) >= new Date())
+      .map(r => ({
+        date: r.startDate,
+        endDate: r.endDate,
+        type: r.leaveType,
+        status: r.status
+      })),
+    recentRequests: requests.slice(0, 5),
+    announcements
+  };
+};
+
+const getEntitlementData = async (userId) => {
+  const [userDoc, usedLeavesSnapshot] = await Promise.all([
+    db.collection('users').doc(userId).get(),
+    db.collection('leaveRequests')
+      .where('userId', '==', userId)
+      .where('status', '==', 'approved')
+      .get()
+  ]);
+
+  if (!userDoc.exists) {
+    throw new Error('User not found');
+  }
+
+  const userData = userDoc.data();
+  const usedDaysByType = {};
+
+  usedLeavesSnapshot.forEach(doc => {
+    const leave = doc.data();
+    const start = new Date(leave.startDate);
+    const end = new Date(leave.endDate);
+
+    if (isNaN(start) || isNaN(end)) {
+      console.warn(`Invalid dates in leaveRequest ${doc.id}`);
+      return;
     }
 
-    // Dashboard route - shows user info and previous leaves
-    router.get('/dashboard', authenticateToken, async (req, res) => {
-      try {
-        const userId = req.user.id;  // Assume JWT decoded user id is in req.user.id
+    const diffDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
+    usedDaysByType[leave.leaveType] = (usedDaysByType[leave.leaveType] || 0) + diffDays;
+  });
 
-        // Get previous leaves from Firestore directly
-        const previousLeaves = await getPreviousLeaves(userId);
-
-        // You can also get other dashboard info here if needed
-
-        res.status(200).json({
-          success: true,
-          data: {
-            userId,
-            previousLeaves,
-            // add other dashboard data here
-          },
-        });
-      } catch (error) {
-        console.error('Dashboard error:', error);
-        res.status(500).json({ success: false, error: 'Server error' });
-      }
-    });
-
-    // ========== GET DASHBOARD DATA ==========
-    router.get('/overview/:userId', authenticateToken, async (req, res) => {
-      try {
-        const { userId } = req.params;
-
-        const leaveRequestsSnapshot = await db.collection('leaveRequests')
-          .where('userId', '==', userId)
-          .get();
-
-        const leaveRequests = [];
-        leaveRequestsSnapshot.forEach(doc => {
-          leaveRequests.push({ id: doc.id, ...doc.data() });
-        });
-
-        const approved = leaveRequests.filter(req => req.status === 'approved').length;
-        const pending = leaveRequests.filter(req => req.status === 'pending').length;
-        const rejected = leaveRequests.filter(req => req.status === 'rejected').length;
-        const total = leaveRequests.length;
-
-        const leaveDays = leaveRequests
-          .filter(req => req.status === 'approved')
-          .map(req => ({
-            date: new Date(req.startDate),
-            endDate: new Date(req.endDate),
-            type: req.status,
-            leaveType: req.leaveType
-          }));
-
-        return res.status(200).json({
-          success: true,
-          data: {
-            overview: { approved, pending, rejected, total },
-            leaveDays,
-            recentRequests: leaveRequests.slice(-5)
-          }
-        });
-      } catch (error) {
-        console.error('Error fetching dashboard overview:', error);
-        return res.status(500).json({
-          success: false,
-          error: 'Failed to fetch dashboard data'
-        });
-      }
-    });
-
-    // ========== GET USER LEAVE ENTITLEMENT ==========
-    router.get('/entitlement/:userId', authenticateToken, async (req, res) => {
-      try {
-        const { userId } = req.params;
-        console.log(`[DEBUG] Fetching entitlement for user: ${userId}`);
-
-        // 1. Check user exists
-        console.log('[DEBUG] Fetching user document...');
-        const userDoc = await db.collection('users').doc(userId).get();
-        if (!userDoc.exists) {
-          console.log(`[DEBUG] User ${userId} not found in Firestore`);
-          return res.status(404).json({ success: false, error: 'User not found' });
-        }
-
-        console.log('[DEBUG] User found, processing entitlements...');
-        const userData = userDoc.data();
-
-        // 2. Calculate date range for current year
-        const currentYear = new Date().getFullYear();
-        const startOfYear = new Date(currentYear, 0, 1);
-        const endOfYear = new Date(currentYear, 11, 31);
-        console.log(`[DEBUG] Year range: ${startOfYear.toISOString()} to ${endOfYear.toISOString()}`);
-
-        // 3. Query approved leaves within current year
-        console.log('[DEBUG] Querying approved leaves for the year...');
-        const usedLeavesSnapshot = await db.collection('leaveRequests')
-          .where('userId', '==', userId)
-          .where('status', '==', 'approved')
-          // Firestore does not allow multiple range filters on different fields.
-          // Using startDate filtering only - make sure your data and query make sense
-          .where('startDate', '>=', startOfYear.toISOString().split('T')[0])
-          .where('startDate', '<=', endOfYear.toISOString().split('T')[0])
-          .get();
-
-        console.log(`[DEBUG] Found ${usedLeavesSnapshot.size} approved leave requests`);
-
-        // 4. Calculate total used days per leave type
-        const usedDaysByType = {};
-
-        usedLeavesSnapshot.forEach(doc => {
-          const leave = doc.data();
-
-          // Parse dates safely
-          const start = new Date(leave.startDate);
-          const end = new Date(leave.endDate);
-
-          if (isNaN(start) || isNaN(end)) {
-            console.warn(`[WARN] Invalid dates in leaveRequest ${doc.id}`);
-            return; // skip this record
-          }
-
-          // Calculate days difference, inclusive of both start and end dates
-          const diffTime = Math.abs(end - start);
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-
-          if (!usedDaysByType[leave.leaveType]) {
-            usedDaysByType[leave.leaveType] = 0;
-          }
-          usedDaysByType[leave.leaveType] += diffDays;
-        });
-
-        console.log('[DEBUG] Used leave days by type:', usedDaysByType);
-
-        // 5. Define entitlement policy for each leave type (hardcoded example)
-        // You should replace this with real data, possibly stored in userData or config
-        const leaveEntitlements = [
-          { name: 'Annual Leave', total: 30 },
-          { name: 'Sick Leave', total: 15 },
-          { name: 'Casual Leave', total: 10 }
-          // Add other leave types if needed
-        ];
-
-        // 6. Calculate remaining leave for each type
-        const leaveTypes = leaveEntitlements.map(lt => {
-          const used = usedDaysByType[lt.name] || 0;
-          const remaining = lt.total - used;
-          return {
-            name: lt.name,
-            total: lt.total,
-            used,
-            remaining: remaining < 0 ? 0 : remaining
-          };
-        });
-
-        console.log('[DEBUG] Final leave types entitlement:', leaveTypes);
-
-        // 7. Return the entitlement response
-        return res.status(200).json({
-          success: true,
-          data: {
-            userId,
-            leaveTypes
-          }
-        });
-
-      } catch (error) {
-        console.error('[ERROR] Detailed error:', error);
-        console.error('[ERROR] Stack trace:', error.stack);
-        return res.status(500).json({
-          success: false,
-          error: 'Failed to fetch leave entitlement data',
-          details: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-      }
-    });
-
-
-    // ========== GET PREVIOUS LEAVE REQUESTS ==========
-
-    router.get('/previous-leaves/:userId', authenticateToken, async (req, res) => {
-      try {
-        const { userId } = req.params;
-        const { page = 1, limit = 10 } = req.query;
-        const offset = (page - 1) * limit;
-
-        console.log(`[DEBUG] Fetching previous leaves for user ${userId} page ${page} limit ${limit}`);
-
-        // Add validation for query parameters
-        if (isNaN(page) || isNaN(limit) ){
-          return res.status(400).json({
-            success: false,
-            error: 'Invalid pagination parameters'
-          });
-        }
-
-        // Get total count first
-        const leaveRequestsSnapshot = await db.collection('leaveRequests')
-          .where('userId', '==', userId)
-          .orderBy('createdAt', 'desc')
-          .get();
-
-        console.log(`[DEBUG] Total leave requests found: ${leaveRequestsSnapshot.size}`);
-
-        const allRequests = [];
-        leaveRequestsSnapshot.forEach(doc => {
-          try {
-            const data = doc.data();
-            // Validate required fields
-            if (!data.startDate || !data.endDate || !data.createdAt) {
-              console.warn(`[WARN] Document ${doc.id} missing required fields`);
-              return;
-            }
-            
-            allRequests.push({ id: doc.id, ...data });
-          } catch (docError) {
-            console.error(`[ERROR] Error processing document ${doc.id}:`, docError);
-          }
-        });
-
-        // Process pagination
-        const paginatedRequests = allRequests.slice(offset, offset + parseInt(limit)).map(data => {
-          try {
-            const startDate = new Date(data.startDate);
-            const endDate = new Date(data.endDate);
-
-            if (isNaN(startDate) || isNaN(endDate)) {
-              console.warn(`[WARN] Invalid dates in leaveRequest ${data.id}`);
-              throw new Error('Invalid date format');
-            }
-
-            const days = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
-
-            return {
-              id: data.id,
-              type: data.leaveType,
-              start: data.startDate,
-              end: data.endDate,
-              days,
-              status: data.status,
-              reason: data.reason,
-              createdAt: data.createdAt,
-              approvedBy: data.approvedBy,
-              rejectionReason: data.rejectionReason
-            };
-          } catch (mapError) {
-            console.error(`[ERROR] Error mapping document ${data.id}:`, mapError);
-            return null; // Skip this document but continue processing others
-          }
-        }).filter(req => req !== null); // Remove any null entries from failed mappings
-
-        return res.status(200).json({
-          success: true,
-          data: paginatedRequests,
-          pagination: {
-            page: parseInt(page),
-            limit: parseInt(limit),
-            total: allRequests.length,
-            hasMore: allRequests.length > offset + parseInt(limit)
-          }
-        });
-      } catch (error) {
-        console.error('[ERROR] Detailed error in previous-leaves endpoint:', error);
-        console.error('[ERROR] Error stack:', error.stack);
-        return res.status(500).json({
-          success: false,
-          error: 'Failed to fetch previous leave requests',
-          details: process.env.NODE_ENV === 'development' ? {
-            message: error.message,
-            stack: error.stack
-          } : undefined
-        });
-      }
-    });
-
-    // ========== SUBMIT LEAVE REQUEST ==========
-  // Frontend: Enhanced handleLeaveSubmit function with detailed debugging
-  const handleLeaveSubmit = async (formData) => {
-    try {
-      console.log('=== LEAVE REQUEST SUBMISSION DEBUG ===');
-      console.log('Raw form data:', formData);
-      
-      // Validate required fields before sending
-      const requiredFields = ['leaveType', 'startDate', 'endDate', 'reason'];
-      const missingFields = requiredFields.filter(field => !formData[field]);
-      
-      if (missingFields.length > 0) {
-        console.error('Missing required fields:', missingFields);
-        throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
-      }
-
-      // Log date validation
-      const startDate = new Date(formData.startDate);
-      const endDate = new Date(formData.endDate);
-      const today = new Date();
-      
-      console.log('Date validation:', {
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
-        today: today.toISOString(),
-        startDateValid: !isNaN(startDate),
-        endDateValid: !isNaN(endDate),
-        startInFuture: startDate >= today.setHours(0, 0, 0, 0),
-        endAfterStart: endDate >= startDate
-      });
-
-      // Prepare the payload
-      const payload = {
-        leaveType: formData.leaveType,
-        startDate: formData.startDate,
-        endDate: formData.endDate,
-        reason: formData.reason
-      };
-
-      console.log('Payload being sent:', payload);
-      console.log('Payload JSON:', JSON.stringify(payload, null, 2));
-
-      // Make the API call with enhanced error handling
-      const response = await apiCall('/dashboard/apply', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
-
-      console.log('Leave request submitted successfully:', response);
-      
-      // Handle success (add your success logic here)
-      return response;
-
-    } catch (error) {
-      console.error('=== LEAVE REQUEST ERROR DEBUG ===');
-      console.error('Error submitting leave request:', error);
-      
-      // Try to get more details from the error
-      if (error.message.includes('HTTP 400')) {
-        console.error('This is a 400 Bad Request error. Common causes:');
-        console.error('1. Missing required fields (leaveType, startDate, endDate, reason)');
-        console.error('2. Invalid date format');
-        console.error('3. Start date in the past');
-        console.error('4. End date before start date');
-        console.error('5. Overlapping leave requests');
-        console.error('6. Insufficient leave balance');
-      }
-      
-      throw error;
-    }
+  const leaveEntitlements = userData.leaveEntitlements || {
+    'Annual Leave': 30,
+    'Sick Leave': 15,
+    'Casual Leave': 10
   };
 
- // Backend: Enhanced validation with detailed error messages, NO overlapping check
-router.post('/apply', authenticateToken, async (req, res) => {
-  try {
-    console.log('=== LEAVE APPLICATION DEBUG ===');
-    console.log('Request body:', req.body);
-    console.log('User from token:', req.user);
-
-    const { leaveType, startDate, endDate, reason } = req.body;
-    const userId = req.user.id;
-
-    // Enhanced field validation with specific error messages
-    const missingFields = [];
-    if (!leaveType) missingFields.push('leaveType');
-    if (!startDate) missingFields.push('startDate');
-    if (!endDate) missingFields.push('endDate');
-    if (!reason) missingFields.push('reason');
-
-    if (missingFields.length > 0) {
-      console.log('Missing fields:', missingFields);
-      return res.status(400).json({
-        success: false,
-        error: `Missing required fields: ${missingFields.join(', ')}`,
-        missingFields
-      });
-    }
-
-    // Enhanced date validation
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0); // Set to start of day for comparison
-
-    console.log('Date validation:', {
-      startDate,
-      endDate,
-      startParsed: start.toISOString(),
-      endParsed: end.toISOString(),
-      todayForComparison: today.toISOString(),
-      startValid: !isNaN(start),
-      endValid: !isNaN(end)
-    });
-
-    // Check for invalid dates
-    if (isNaN(start) || isNaN(end)) {
-      console.log('Invalid date format detected');
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid date format. Please use YYYY-MM-DD format',
-        details: {
-          startDateValid: !isNaN(start),
-          endDateValid: !isNaN(end)
-        }
-      });
-    }
-
-    // Check if start date is in the past
-    if (start < today) {
-      console.log('Start date is in the past');
-      return res.status(400).json({
-        success: false,
-        error: 'Start date cannot be in the past',
-        details: {
-          startDate: start.toISOString(),
-          today: today.toISOString()
-        }
-      });
-    }
-
-    // Check if end date is before start date
-    if (end < start) {
-      console.log('End date is before start date');
-      return res.status(400).json({
-        success: false,
-        error: 'End date cannot be before start date',
-        details: {
-          startDate: start.toISOString(),
-          endDate: end.toISOString()
-        }
-      });
-    }
-
-    // *** OVERLAPPING LEAVE CHECK REMOVED ***
-
-    // Calculate leave days
-    const leaveDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
-    console.log('Calculated leave days:', leaveDays);
-
-    // Check entitlement (with error handling for the internal API call)
-    console.log('Checking entitlement...');
-    try {
-      const entitlementResponse = await fetch(`${req.protocol}://${req.get('host')}/dashboard/entitlement/${userId}`, {
-        headers: { 'Authorization': req.headers.authorization }
-      });
-
-      if (entitlementResponse.ok) {
-        const entitlementData = await entitlementResponse.json();
-        const leaveTypeData = entitlementData.data.leaveTypes.find(lt => lt.name === leaveType);
-
-        console.log('Entitlement check:', {
-          leaveType,
-          leaveTypeData,
-          requestedDays: leaveDays
-        });
-
-        if (leaveTypeData && leaveTypeData.remaining < leaveDays) {
-          console.log('Insufficient leave balance');
-          return res.status(400).json({
-            success: false,
-            error: `Insufficient ${leaveType} leave balance. Available: ${leaveTypeData.remaining}, Requested: ${leaveDays}`,
-            entitlementDetails: {
-              available: leaveTypeData.remaining,
-              requested: leaveDays,
-              leaveType
-            }
-          });
-        }
-      } else {
-        console.warn('Entitlement check failed, proceeding without balance validation');
-      }
-    } catch (entitlementError) {
-      console.warn('Entitlement check error:', entitlementError);
-      // Continue without entitlement check if it fails
-    }
-
-    // Create the leave request
-    const leaveRequest = {
-      userId,
-      leaveType,
-      startDate,
-      endDate,
-      reason,
-      leaveDays,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+  const leaveTypes = Object.entries(leaveEntitlements).map(([name, total]) => {
+    const used = usedDaysByType[name] || 0;
+    return {
+      name,
+      total,
+      used,
+      remaining: Math.max(0, total - used)
     };
+  });
 
-    console.log('Creating leave request:', leaveRequest);
+  const totals = leaveTypes.reduce((acc, lt) => ({
+    totalLeaves: acc.totalLeaves + lt.total,
+    usedLeaves: acc.usedLeaves + lt.used,
+    remainingLeaves: acc.remainingLeaves + lt.remaining
+  }), { totalLeaves: 0, usedLeaves: 0, remainingLeaves: 0 });
 
-    const docRef = await db.collection('leaveRequests').add(leaveRequest);
-    console.log('Leave request created with ID:', docRef.id);
+  return {
+    userId,
+    ...totals,
+    leaveTypes
+  };
+};
 
-    return res.status(201).json({
-      success: true,
-      message: 'Leave request submitted successfully',
-      data: {
-        id: docRef.id,
-        ...leaveRequest
+const getPreviousLeaves = async (userId, limit = 10) => {
+  const snapshot = await db.collection('leaveRequests')
+    .where('userId', '==', userId)
+    .orderBy('createdAt', 'desc')
+    .limit(limit)
+    .get();
+
+  return snapshot.docs.map(doc => {
+    const data = doc.data();
+    const start = new Date(data.startDate);
+    const end = new Date(data.endDate);
+    const days = isNaN(start) || isNaN(end) ? 0 : 
+      Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
+
+    return {
+      id: doc.id,
+      type: data.leaveType,
+      start: data.startDate,
+      end: data.endDate,
+      days,
+      status: data.status,
+      reason: data.reason,
+      createdAt: data.createdAt,
+      approvedBy: data.approvedBy,
+      rejectionReason: data.rejectionReason
+    };
+  });
+};
+
+const getAnnouncements = async () => {
+  const snapshot = await db.collection('announcements')
+    .where('isActive', '==', true)
+    .orderBy('createdAt', 'desc')
+    .get();
+  
+  return snapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data()
+  }));
+};
+
+/**
+ * @api {get} /dashboard/batch/:userId Get All Dashboard Data (NEW BATCH ENDPOINT)
+ */
+router.get(
+  '/batch/:userId',
+  [
+    param('userId').isString().notEmpty().withMessage('Invalid user ID')
+  ],
+  async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const startTime = Date.now();
+
+      // Strict authorization check
+      if (userId !== req.user.uid) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden',
+          details: 'You can only access your own data'
+        });
       }
+
+      console.log(`[${new Date().toISOString()}] Fetching batch dashboard data for user:`, userId);
+
+      // Execute all data fetching in parallel using Promise.allSettled
+      const [overviewResult, entitlementResult, previousLeavesResult, announcementsResult] = 
+        await Promise.allSettled([
+          getOverviewData(userId),
+          getEntitlementData(userId),
+          getPreviousLeaves(userId, 5),
+          getAnnouncements()
+        ]);
+
+      // Prepare response with error handling
+      const response = {
+        success: true,
+        data: {
+          overview: overviewResult.status === 'fulfilled' ? overviewResult.value : null,
+          entitlement: entitlementResult.status === 'fulfilled' ? entitlementResult.value : null,
+          previousLeaves: previousLeavesResult.status === 'fulfilled' ? previousLeavesResult.value : [],
+          announcements: announcementsResult.status === 'fulfilled' ? announcementsResult.value : []
+        },
+        errors: {
+          overview: overviewResult.status === 'rejected' ? overviewResult.reason.message : null,
+          entitlement: entitlementResult.status === 'rejected' ? entitlementResult.reason.message : null,
+          previousLeaves: previousLeavesResult.status === 'rejected' ? previousLeavesResult.reason.message : null,
+          announcements: announcementsResult.status === 'rejected' ? announcementsResult.reason.message : null
+        },
+        meta: {
+          fetchTime: Date.now() - startTime,
+          timestamp: new Date().toISOString()
+        }
+      };
+
+      console.log(`[${new Date().toISOString()}] Batch fetch completed for user: ${userId} (${Date.now() - startTime}ms)`);
+      
+      return res.json(response);
+
+    } catch (error) {
+      console.error('Batch dashboard data error:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch dashboard data',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+);
+
+/**
+ * @api {get} /dashboard/overview/:userId Get Dashboard Overview
+ */
+router.get(
+  '/overview/:userId',
+  [
+    param('userId').isString().notEmpty().withMessage('Invalid user ID')
+  ],
+  async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      if (userId !== req.user.uid) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden',
+          details: 'You can only access your own data'
+        });
+      }
+
+      const data = await getOverviewData(userId);
+
+      return res.json({
+        success: true,
+        data
+      });
+
+    } catch (error) {
+      console.error('Dashboard overview error:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message || 'Failed to load dashboard overview'
+      });
+    }
+  }
+);
+
+/**
+ * @api {get} /dashboard/entitlement/:userId Get Leave Entitlement
+ */
+router.get(
+  '/entitlement/:userId',
+  [
+    param('userId').isString().notEmpty().withMessage('Invalid user ID')
+  ],
+  async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      if (userId !== req.user.uid) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden - You can only access your own data'
+        });
+      }
+
+      const data = await getEntitlementData(userId);
+
+      return res.json({
+        success: true,
+        data
+      });
+
+    } catch (error) {
+      console.error('Error fetching leave entitlement:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch leave entitlement data',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+);
+
+/**
+ * @api {get} /dashboard/previous-leaves/:userId Get Previous Leaves
+ */
+router.get(
+  '/previous-leaves/:userId',
+  [
+    param('userId').isString().notEmpty().withMessage('Invalid user ID'),
+    query('page').optional().isInt({ min: 1 }).toInt(),
+    query('limit').optional().isInt({ min: 1, max: 50 }).toInt()
+  ],
+  async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { page = 1, limit = 10 } = req.query;
+
+      if (userId !== req.user.uid) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden - You can only access your own data'
+        });
+      }
+
+      const data = await getPreviousLeaves(userId, limit);
+
+      return res.json({
+        success: true,
+        data,
+        pagination: {
+          page,
+          limit,
+          total: data.length,
+          hasMore: data.length === limit
+        }
+      });
+
+    } catch (error) {
+      console.error('Error fetching previous leaves:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch previous leave requests',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+);
+
+/**
+ * @api {get} /dashboard/announcements Get Announcements
+ */
+router.get('/announcements', async (req, res) => {
+  try {
+    const data = await getAnnouncements();
+
+    return res.json({
+      success: true,
+      data
     });
-
   } catch (error) {
-    console.error('=== LEAVE APPLICATION ERROR ===');
-    console.error('Detailed error:', error);
-    console.error('Error stack:', error.stack);
-
+    console.error('Error fetching announcements:', error);
     return res.status(500).json({
       success: false,
-      error: 'Failed to submit leave request',
-      details: process.env.NODE_ENV === 'development' ? {
-        message: error.message,
-        stack: error.stack
-      } : undefined
+      error: 'Failed to fetch announcements'
     });
   }
 });
 
+/**
+ * @api {post} /dashboard/apply Submit Leave Request
+ */
+router.post(
+  '/apply',
+  [
+    body('leaveType').isString().notEmpty(),
+    body('startDate').isISO8601().toDate(),
+    body('endDate').isISO8601().toDate(),
+    body('reason').isString().notEmpty()
+  ],
+  async (req, res) => {
+    try {
+      const { leaveType, startDate, endDate, reason } = req.body;
+      const userId = req.user.uid;
 
-    // Temporary workaround (remove after index is active)
-    router.get('/announcements', authenticateToken, async (req, res) => {
-      try {
-        const { category } = req.query;
-        
-        let query = db.collection('announcements')
-          .where('isActive', '==', true)
-          .orderBy('createdAt', 'desc');
-
-        if (category) {
-          query = query.where('category', '==', category);
-        }
-
-        const snapshot = await query.get();
-        
-        const announcements = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-
-        return res.json({
-          success: true,
-          data: announcements
-        });
-      } catch (error) {
-        console.error(error);
-        return res.status(500).json({
+      const dateValidation = validateDateRange(startDate, endDate);
+      if (!dateValidation.valid) {
+        return res.status(400).json({
           success: false,
-          error: 'Failed to fetch announcements'
+          error: dateValidation.error
         });
       }
-    });
-    // Add this test route BEFORE any other routes
-    router.get('/test-firebase', async (req, res) => {
-      try {
-        console.log('Firebase test route hit!'); // Debug log
-        
-        // Test write operation
-        const testRef = db.collection('connection-test').doc('test-doc');
-        await testRef.set({
-          test: true,
-          timestamp: new Date().toISOString()
-        });
-        
-        // Test read operation
-        const doc = await testRef.get();
-        
-        if (!doc.exists) {
-          throw new Error('Document not found after writing');
+
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      const leaveDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
+
+      const leaveRequest = {
+        userId,
+        leaveType,
+        startDate,
+        endDate,
+        reason,
+        leaveDays,
+        status: 'pending',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp() 
+      };
+
+      const docRef = await db.collection('leaveRequests').add(leaveRequest);
+
+      return res.status(201).json({
+        success: true,
+        message: 'Leave request submitted successfully',
+        data: {
+          id: docRef.id,
+          ...leaveRequest,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
         }
+      });
 
-        // Test delete operation (cleanup)
-        await testRef.delete();
+    } catch (error) {
+      console.error('Error submitting leave request:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to submit leave request',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+);
 
-        return res.json({
-          success: true,
-          message: 'Firebase connection successful',
-          operations: {
-            write: true,
-            read: true,
-            delete: true
-          }
-        });
-      } catch (error) {
-        console.error('Firebase test failed:', error);
-        return res.status(500).json({
-          success: false,
-          error: 'Firebase connection test failed',
-          details: process.env.NODE_ENV === 'development' ? error.message : null
-        });
-      }
-    });
+/**
+ * @api {get} /dashboard/health Health Check
+ */
+router.get('/health', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Dashboard service is healthy',
+    timestamp: new Date().toISOString(),
+    dbStatus: 'Connected'
+  });
+});
 
-
-
-    module.exports = router;
+module.exports = router;

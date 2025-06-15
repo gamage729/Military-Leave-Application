@@ -5,9 +5,16 @@ const cors = require('cors');
 require('dotenv').config();
 
 const db = require("./firebase");
-const { authenticateToken, authorizeRoles } = require("./middleware/auth");
+const { authenticateToken } = require("./middleware/auth");
 const securityMiddleware = require("./middleware/security");
 const { leaveGuideHandler } = require('./src/services/leaveGuideService');
+
+
+
+
+const admin = require('firebase-admin');
+
+
 
 // ========== MIDDLEWARE SETUP ==========
 app.use(express.json({ limit: '10mb' })); // Increased limit for file uploads
@@ -18,7 +25,9 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 const corsOptions = {
   origin: 'http://localhost:3000', // React frontend
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  credentials: true
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  optionsSuccessStatus: 200 // For legacy browser support
 };
 app.use(cors(corsOptions));
 
@@ -51,7 +60,8 @@ app.get('/health', (req, res) => {
 app.use('/auth', require('./routes/auth'));
 app.use('/leave', require('./routes/leave'));
 app.use('/token', require('./routes/token'));
-app.use('/dashboard', require('./routes/dashboard'));
+const dashboardRoutes = require('./routes/dashboard');
+app.use('/dashboard', dashboardRoutes);
 
 // News Routes
 const newsRoutes = require('./routes/news');

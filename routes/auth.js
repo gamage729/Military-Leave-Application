@@ -6,7 +6,7 @@ const securityMiddleware = require("../middleware/security");
 
 const router = express.Router();
 
-// Apply global security middleware (helmet, cors, etc.)
+// Apply global security middleware
 securityMiddleware(router);
 
 // Initialize Firebase Admin if not already
@@ -20,62 +20,74 @@ const db = admin.firestore();
 
 // Rate limit registration/login to prevent abuse
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 mins
+  windowMs: 15 * 60 * 1000,
   max: 5,
   message: { error: "Too many requests. Try again later." },
 });
 
-// Middleware: Verify Firebase ID Token - IMPROVED VERSION
 const verifyToken = async (req, res, next) => {
   console.log("🔍 === TOKEN VERIFICATION START ===");
   
   try {
+    // 1. Check Authorization header
     const authHeader = req.headers.authorization;
-    console.log("🔍 Auth header exists:", !!authHeader);
-    console.log("🔍 Auth header:", authHeader ? authHeader.substring(0, 50) + "..." : "None");
-    
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       console.log("❌ Invalid auth header format");
       return res.status(401).json({ 
+        success: false,
         error: "Authentication required", 
-        details: "No valid Bearer token provided" 
+        details: "No valid Bearer token provided",
+        solution: "Include 'Authorization: Bearer <token>' header"
       });
     }
 
+    // 2. Extract token
     const token = authHeader.split(" ")[1];
-    console.log("🔍 Token extracted, length:", token.length);
-    console.log("🔍 Token first 50 chars:", token.substring(0, 50));
-
-    console.log("🔍 Attempting Firebase token verification...");
-    const decoded = await admin.auth().verifyIdToken(token);
-    console.log("✅ Token verified successfully!");
-    console.log("🔍 Decoded token keys:", Object.keys(decoded));
-    console.log("🔍 UID from token:", decoded.uid);
-    console.log("🔍 Email from token:", decoded.email);
     
-    // Set req.user
+    // 3. Verify token with Firebase
+    const decoded = await admin.auth().verifyIdToken(token, true);
+    
+    // 4. Check expiration
+    const now = Date.now() / 1000;
+    if (decoded.exp < now) {
+      console.log("❌ Token expired");
+      return res.status(401).json({
+        success: false,
+        error: "Token expired",
+        details: `Token expired at ${new Date(decoded.exp * 1000)}`,
+        solution: "Refresh your token"
+      });
+    }
+
+    // 5. Set user context
     req.user = {
       uid: decoded.uid,
       email: decoded.email,
       decodedToken: decoded
     };
     
-    console.log("✅ req.user set:", !!req.user);
-    console.log("✅ req.user.uid:", req.user.uid);
-    console.log("🔍 === TOKEN VERIFICATION END ===");
-    
+    console.log("✅ Token verified successfully for user:", decoded.uid);
     next();
-  } catch (error) {
-    console.error("❌ Token verification failed:", error.message);
-    console.error("❌ Error code:", error.code);
-    console.error("❌ Full error:", error);
     
-    return res.status(401).json({ 
-      error: 'Authentication failed', 
-      details: error.message 
-    });
+  } catch (error) {
+    console.error("❌ Token verification failed:", error.code, error.message);
+    
+    let response = {
+      success: false,
+      error: 'Authentication failed',
+      details: error.message
+    };
+
+    if (error.code === 'auth/id-token-revoked') {
+      response.solution = 'Please log in again';
+    } else if (error.code === 'auth/id-token-expired') {
+      response.solution = 'Refresh your token';
+    }
+
+    return res.status(401).json(response);
   }
 };
+
 // GET: Debug status
 router.get("/debug", (req, res) => {
   res.json({ 
@@ -85,102 +97,139 @@ router.get("/debug", (req, res) => {
   });
 });
 
-// Simple registration endpoint with extensive debugging
-router.post("/register", async (req, res) => {
-  console.log("🚀 === REGISTRATION START ===");
-  console.log("🔍 Request body:", JSON.stringify(req.body, null, 2));
-  console.log("🔍 Request headers:", req.headers);
-  
-  // Manual token verification for debugging
+// POST: Register new user
+router.post('/register', async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      console.log("❌ No valid auth header");
-      return res.status(401).json({ error: "No auth header" });
+    const { soldierId, email, password, name, rank } = req.body;
+
+    // Validate input
+    if (!soldierId || !email || !password || !name || !rank) {
+      return res.status(400).json({
+        success: false,
+        error: 'All fields are required'
+      });
     }
 
-    const token = authHeader.split(" ")[1];
-    console.log("🔍 Token length:", token.length);
+    // Check if soldier exists and isn't registered
+    const soldierRef = db.collection('soldiers').doc(soldierId);
+    const soldierDoc = await soldierRef.get();
     
-    const decoded = await admin.auth().verifyIdToken(token);
-    console.log("✅ Token verified in route handler");
-    console.log("🔍 Decoded UID:", decoded.uid);
-    console.log("🔍 Decoded email:", decoded.email);
-    
-    const { soldierId, name, rank, role, email } = req.body;
-    const uid = decoded.uid;
-    
-    console.log("🔍 Extracted data:");
-    console.log("  - UID:", uid);
-    console.log("  - Soldier ID:", soldierId);
-    console.log("  - Name:", name);
-    console.log("  - Email:", email);
-    
-    // Basic validation
-    if (!soldierId || !name || !rank || !role || !email) {
-      console.log("❌ Missing required fields");
-      return res.status(400).json({ error: "Missing required fields" });
+    if (!soldierDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        error: 'Soldier not found'
+      });
     }
 
-    // Check if soldier exists (simplified check)
-    console.log("🔍 Checking soldier whitelist...");
-    const soldierRef = db.collection("soldiers").doc(soldierId);
-    const soldierSnap = await soldierRef.get();
-    
-    if (!soldierSnap.exists) {
-      console.log("❌ Soldier not whitelisted:", soldierId);
-      return res.status(403).json({ error: "Soldier ID not whitelisted" });
+    if (soldierDoc.data().registered) {
+      return res.status(400).json({
+        success: false,
+        error: 'Soldier already registered'
+      });
     }
-    
-    console.log("✅ Soldier found in whitelist");
-    
-    // Create user data
+
+    // 1. First create the Firebase auth user
+    const userRecord = await admin.auth().createUser({
+      email,
+      password,
+      displayName: name
+    });
+
+    // 2. Create the user document
     const userData = {
-      uid,
+      uid: userRecord.uid,
       soldierId,
-      name: name.trim(),
+      name,
+      email,
       rank,
-      role,
-      email: email.toLowerCase().trim(),
+      role: 'user',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      isActive: true,
+      leaveEntitlements: {
+        'Annual Leave': 30,
+        'Sick Leave': 15,
+        'Casual Leave': 10
+      }
     };
-    
-    console.log("💾 Creating user:", userData);
-    
-    // Save to database
-    await db.collection("users").doc(uid).set(userData);
-    await soldierRef.update({ 
-      registered: true, 
-      registeredAt: admin.firestore.FieldValue.serverTimestamp() 
+
+    await db.collection('users').doc(userRecord.uid).set(userData);
+
+    // 3. Then mark soldier as registered
+    await soldierRef.update({
+      registered: true,
+      registeredAt: admin.firestore.FieldValue.serverTimestamp(),
+      registeredBy: userRecord.uid
     });
-    
-    console.log("✅ Registration successful!");
-    
-    res.status(201).json({
-      message: "Registration successful",
+
+    // 4. Initialize dashboard data
+    await initializeDashboardData(userRecord.uid, soldierId);
+
+    return res.status(201).json({
+      success: true,
+      message: 'Registration successful',
       user: {
-        uid: userData.uid,
-        name: userData.name,
-        email: userData.email,
-        rank: userData.rank,
-        role: userData.role,
-        soldierId: userData.soldierId,
-      },
+        ...userData,
+        password: undefined // Don't return password
+      }
     });
-    
   } catch (error) {
-    console.error("❌ Registration failed:", error);
-    res.status(500).json({ 
-      error: "Registration error", 
-      details: error.message 
+    console.error('Registration error:', error);
+    
+    // Clean up if user was created but something else failed
+    if (error.code === 'auth/email-already-exists') {
+      try {
+        const user = await admin.auth().getUserByEmail(req.body.email);
+        await admin.auth().deleteUser(user.uid);
+      } catch (cleanupError) {
+        console.error('Cleanup failed:', cleanupError);
+      }
+      
+      return res.status(400).json({
+        success: false,
+        error: 'Email already registered'
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: 'Registration failed',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
-  
-  console.log("🔍 === REGISTRATION END ===");
 });
 
-// POST: Login user (expects Firebase ID token from client)
+// Helper function to initialize dashboard data
+async function initializeDashboardData(uid, soldierId) {
+  const batch = db.batch();
+  
+  // 1. Create leave entitlement
+  const entitlementRef = db.collection('leaveEntitlements').doc(uid);
+  batch.set(entitlementRef, {
+    soldierId,
+    annualLeave: 30,
+    sickLeave: 15,
+    casualLeave: 10,
+    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+  });
+
+  // 2. Create empty leave requests collection
+  const requestsRef = db.collection('users').doc(uid).collection('leaveRequests').doc();
+  batch.set(requestsRef, {
+    initialized: true,
+    createdAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+
+  // 3. Create user settings
+  const settingsRef = db.collection('userSettings').doc(uid);
+  batch.set(settingsRef, {
+    notificationsEnabled: true,
+    theme: 'light',
+    createdAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+
+  await batch.commit();
+}
+
+// POST: Login user
 router.post("/login", authLimiter, async (req, res) => {
   const { idToken } = req.body;
   if (!idToken) return res.status(400).json({ error: "ID token required" });
@@ -191,7 +240,10 @@ router.post("/login", authLimiter, async (req, res) => {
     const userSnap = await userRef.get();
 
     if (!userSnap.exists) {
-      return res.status(404).json({ error: "User not found. Please register first." });
+      return res.status(404).json({ 
+        error: "User not found",
+        solution: "Please register first"
+      });
     }
 
     // Update last login
@@ -202,6 +254,7 @@ router.post("/login", authLimiter, async (req, res) => {
     const userData = userSnap.data();
 
     return res.json({
+      success: true,
       message: "Login successful",
       token: idToken,
       user: {
@@ -215,7 +268,11 @@ router.post("/login", authLimiter, async (req, res) => {
     });
   } catch (error) {
     console.error("Login failed:", error);
-    return res.status(401).json({ error: "Login error", details: error.message });
+    return res.status(401).json({ 
+      success: false,
+      error: "Login failed",
+      details: error.message 
+    });
   }
 });
 
@@ -226,12 +283,17 @@ router.get("/verify", verifyToken, async (req, res) => {
     const userSnap = await userRef.get();
 
     if (!userSnap.exists) {
-      return res.status(404).json({ error: "User not found" });
+      return res.status(404).json({ 
+        success: false,
+        error: "User not found",
+        solution: "Please register first"
+      });
     }
 
     const userData = userSnap.data();
 
     return res.json({
+      success: true,
       valid: true,
       user: {
         uid: req.user.uid,
@@ -244,33 +306,48 @@ router.get("/verify", verifyToken, async (req, res) => {
     });
   } catch (err) {
     console.error("Verify error:", err);
-    return res.status(500).json({ error: "Verification failed" });
+    return res.status(500).json({ 
+      success: false,
+      error: "Verification failed",
+      details: err.message 
+    });
   }
 });
 
-// GET: Protected route (just an example)
+// GET: Protected route example
 router.get("/protected", verifyToken, async (req, res) => {
   try {
     const userRef = db.collection("users").doc(req.user.uid);
     const userSnap = await userRef.get();
 
     if (!userSnap.exists) {
-      return res.status(404).json({ error: "User not found" });
+      return res.status(404).json({ 
+        success: false,
+        error: "User not found" 
+      });
     }
 
     return res.json({ 
+      success: true,
       message: "Protected access granted", 
       user: userSnap.data() 
     });
   } catch (error) {
     console.error("Protected route error:", error);
-    return res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ 
+      success: false,
+      error: "Internal server error",
+      details: error.message 
+    });
   }
 });
 
-// POST: Logout (Client should delete token)
+// POST: Logout
 router.post("/logout", verifyToken, (req, res) => {
-  res.json({ message: "Logout successful (client should delete token)" });
+  res.json({ 
+    success: true,
+    message: "Logout successful (client should delete token)" 
+  });
 });
 
 // GET: Current logged-in user
@@ -278,21 +355,31 @@ router.get("/me", verifyToken, async (req, res) => {
   try {
     const userSnap = await db.collection("users").doc(req.user.uid).get();
     if (!userSnap.exists) {
-      return res.status(404).json({ error: "User not found" });
+      return res.status(404).json({ 
+        success: false,
+        error: "User not found" 
+      });
     }
     
     const userData = userSnap.data();
     return res.json({
-      uid: req.user.uid,
-      name: userData.name,
-      email: userData.email,
-      rank: userData.rank,
-      role: userData.role,
-      soldierId: userData.soldierId,
+      success: true,
+      user: {
+        uid: req.user.uid,
+        name: userData.name,
+        email: userData.email,
+        rank: userData.rank,
+        role: userData.role,
+        soldierId: userData.soldierId,
+      }
     });
   } catch (err) {
     console.error("Me error:", err);
-    return res.status(500).json({ error: "Failed to fetch current user" });
+    return res.status(500).json({ 
+      success: false,
+      error: "Failed to fetch current user",
+      details: err.message 
+    });
   }
 });
 

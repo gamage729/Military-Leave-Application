@@ -1,6 +1,6 @@
 const express = require("express");
 const db = require("../firebase");
-const { authenticateToken, authorizeRoles } = require("../middleware/auth");
+const { authenticateToken } = require("../middleware/auth");
 const { handleLeaveRequest } = require("../src/controllers/leaveController");
 const getAIResponse = require('../src/services/deepseek');
 
@@ -31,8 +31,8 @@ router.post("/analyze", async (req, res) => {
     }
 });
 
-// Admin: Get All Leave Requests (Firestore)
-router.get("/all", authenticateToken, authorizeRoles("admin"), async (req, res) => {
+// Get All Leave Requests (Authenticated users only)
+router.get("/all", authenticateToken, async (req, res) => {
     try {
         const snapshot = await db.collection("leave_requests").get();
         const leaveRequests = snapshot.docs.map(doc => ({
@@ -46,8 +46,8 @@ router.get("/all", authenticateToken, authorizeRoles("admin"), async (req, res) 
     }
 });
 
-// Admin Override Leave Decision (Firestore)
-router.put("/override", authenticateToken, authorizeRoles("admin"), async (req, res) => {
+// Admin Override Leave Decision (Basic version without role check)
+router.put("/override", authenticateToken, async (req, res) => {
     const { id, admin_override } = req.body;
 
     if (!id || !admin_override) {
@@ -62,11 +62,24 @@ router.put("/override", authenticateToken, authorizeRoles("admin"), async (req, 
             return res.status(404).json({ error: "Leave request not found." });
         }
 
-        await leaveRef.update({ admin_override });
-        res.json({ message: "Leave request override updated." });
+        await leaveRef.update({ 
+            admin_override,
+            updated_at: new Date().toISOString(),
+            updated_by: req.user.uid
+        });
+        
+        res.json({ 
+            success: true,
+            message: "Leave request override updated.",
+            request_id: id
+        });
     } catch (err) {
         console.error("Firestore Update Error:", err);
-        res.status(500).json({ error: "Failed to update leave request." });
+        res.status(500).json({ 
+            success: false,
+            error: "Failed to update leave request.",
+            details: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
     }
 });
 
