@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import * as solidIcons from '@fortawesome/free-solid-svg-icons';
 import { useNavigate, useLocation } from 'react-router-dom';
-import LeavesRemaining from "./LeavesRemaining"; 
+import axios from 'axios';
+import LeavesRemaining from "./LeavesRemaining";
 import Sidebar from "./Sidebar";
 import FloatingChatBot from "./FloatingChatBot";
 import "../styles/DashboardStyles.css";
 import { useAuth } from "../context/AuthContext";
-import api, { authAPI } from '../utils/auth';
 
 // Access icons
 const {
@@ -37,208 +37,8 @@ const {
   faSpinner
 } = solidIcons;
 
-// API configuration
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
-// Create API call function that takes logout as parameter
-const createApiCall = (logoutFn) => async (endpoint, options = {}) => {
-  try {
-    console.log("🔍 Making API call to:", endpoint);
-    
-    // Use the configured axios instance instead of fetch
-    const response = await api.get(endpoint, options);
-    
-    console.log("✅ API call successful");
-    return response.data;
-  } catch (error) {
-    console.error(`❌ API call to ${endpoint} failed:`, error);
-    
-    // The auth.js interceptor will handle 401/403 errors automatically
-    // But we still need to handle the final logout case
-    if (error.response?.status === 401 || error.response?.status === 403) {
-      console.log("🔄 Authentication failed - logging out");
-      if (logoutFn) logoutFn();
-    }
-    
-    throw error;
-  }
-};
-
-// Calendar Component
-const Calendar = ({ leaveDays }) => {
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState(new Date());
-
-  // Navigation functions
-  const nextMonth = () => {
-    const next = new Date(currentMonth);
-    next.setMonth(next.getMonth() + 1);
-    setCurrentMonth(next);
-  };
-
-  const prevMonth = () => {
-    const prev = new Date(currentMonth);
-    prev.setMonth(prev.getMonth() - 1);
-    setCurrentMonth(prev);
-  };
-
-  // Date comparison helpers
-  const isSameDay = (date1, date2) => {
-    return date1.toDateString() === date2.toDateString();
-  };
-
-  // Check if a date falls within a leave period
-  const isLeaveDay = (date) => {
-    return leaveDays.find(leave => {
-      const leaveStart = new Date(leave.date);
-      const leaveEnd = new Date(leave.endDate);
-      return date >= leaveStart && date <= leaveEnd;
-    });
-  };
-
-  // Generate days for current month view
-  const getDaysInMonth = () => {
-    const year = currentMonth.getFullYear();
-    const month = currentMonth.getMonth();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    
-    const days = [];
-    for (let i = 1; i <= daysInMonth; i++) {
-      days.push(new Date(year, month, i));
-    }
-    return days;
-  };
-
-  // Get first day of month to calculate offset
-  const getFirstDayOfMonth = () => {
-    const firstDay = new Date(
-      currentMonth.getFullYear(),
-      currentMonth.getMonth(),
-      1
-    );
-    return firstDay.getDay(); // 0 (Sunday) to 6 (Saturday)
-  };
-
-  // Format month and year for display
-  const formatMonthYear = () => {
-    return currentMonth.toLocaleString('default', {
-      month: 'long',
-      year: 'numeric'
-    });
-  };
-
-  const daysInMonth = getDaysInMonth();
-  const firstDayOffset = getFirstDayOfMonth();
-
-  return (
-    <div className="calendar-container1">
-      <div className="calendar-header">
-        <button className="calendar-nav-button" onClick={prevMonth}>&lt;</button>
-        <h3>{formatMonthYear()}</h3>
-        <button className="calendar-nav-button" onClick={nextMonth}>&gt;</button>
-      </div>
-      <div className="calendar-grid">
-        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-          <div key={day} className="calendar-weekday">{day}</div>
-        ))}
-        {/* Empty cells for days before the first of the month */}
-        {Array.from({ length: firstDayOffset }).map((_, i) => (
-          <div key={`empty-${i}`} className="calendar-day disabled"></div>
-        ))}
-        {/* Days of the month */}
-        {daysInMonth.map(day => {
-          const leave = isLeaveDay(day);
-          return (
-            <div
-              key={day.getTime()}
-              className={`calendar-day 
-                ${isSameDay(day, selectedDate) ? 'selected' : ''}
-                ${leave ? leave.type : ''}`}
-              onClick={() => setSelectedDate(day)}
-              title={leave ? `${leave.leaveType} Leave` : ''}
-            >
-              {day.getDate()}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
-
-// Announcements Component
-const Announcements = ({ announcements, loading }) => {
-  const [activeTab, setActiveTab] = useState('system');
-
-  const getIcon = (type) => {
-    switch (type) {
-      case 'urgent':
-        return <FontAwesomeIcon icon={faExclamationTriangle} className="announcement-icon urgent" />;
-      case 'info':
-        return <FontAwesomeIcon icon={faInfoCircle} className="announcement-icon info" />;
-      default:
-        return <FontAwesomeIcon icon={faBullhorn} className="announcement-icon" />;
-    }
-  };
-
-  const filteredAnnouncements = announcements.filter(
-    announcement => announcement.category === activeTab
-  );
-
-  return (
-    <div className="announcements-container">
-      <div className="announcements-header">
-        <h3>Announcements</h3>
-        <div className="announcement-tabs">
-          <button 
-            className={`tab-button ${activeTab === 'system' ? 'active' : ''}`}
-            onClick={() => setActiveTab('system')}
-          >
-            System
-          </button>
-          <button 
-            className={`tab-button ${activeTab === 'admin' ? 'active' : ''}`}
-            onClick={() => setActiveTab('admin')}
-          >
-            Admin
-          </button>
-        </div>
-      </div>
-      <div className="announcements-content">
-        {loading ? (
-          <div className="loading-announcements">
-            <FontAwesomeIcon icon={faSpinner} spin />
-            <p>Loading announcements...</p>
-          </div>
-        ) : filteredAnnouncements.length > 0 ? (
-          filteredAnnouncements.map((announcement, index) => (
-            <div key={announcement.id || index} className={`announcement-item ${announcement.type}`}>
-              <div className="announcement-icon-container">
-                {getIcon(announcement.type)}
-              </div>
-              <div className="announcement-details">
-                <h4>{announcement.title}</h4>
-                <p>{announcement.message}</p>
-                <div className="announcement-meta">
-                  <span className="announcement-date">{announcement.date}</span>
-                  {announcement.type === 'urgent' && (
-                    <span className="urgent-tag">URGENT</span>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="no-announcements">
-            <p>No {activeTab} announcements at this time</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-const CircularChart = ({ approved, pending, rejected, total }) => {
+const CircularChart = ({ approved = 0, pending = 0, rejected = 0, total = 0 }) => {
   const radius = 40;
   const circumference = 2 * Math.PI * radius;
 
@@ -330,15 +130,175 @@ const CircularChart = ({ approved, pending, rejected, total }) => {
   );
 };
 
-// User Profile Component
+const Calendar = ({ leaveDays }) => {
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(new Date());
+
+  const nextMonth = () => {
+    const next = new Date(currentMonth);
+    next.setMonth(next.getMonth() + 1);
+    setCurrentMonth(next);
+  };
+
+  const prevMonth = () => {
+    const prev = new Date(currentMonth);
+    prev.setMonth(prev.getMonth() - 1);
+    setCurrentMonth(prev);
+  };
+
+  const isSameDay = (date1, date2) => {
+    return date1.toDateString() === date2.toDateString();
+  };
+
+  const isLeaveDay = (date) => {
+    return leaveDays.find(leave => {
+      const leaveStart = new Date(leave.date);
+      const leaveEnd = new Date(leave.endDate);
+      return date >= leaveStart && date <= leaveEnd;
+    });
+  };
+
+  const getDaysInMonth = () => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    const days = [];
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push(new Date(year, month, i));
+    }
+    return days;
+  };
+
+  const getFirstDayOfMonth = () => {
+    const firstDay = new Date(
+      currentMonth.getFullYear(),
+      currentMonth.getMonth(),
+      1
+    );
+    return firstDay.getDay();
+  };
+
+  const formatMonthYear = () => {
+    return currentMonth.toLocaleString('default', {
+      month: 'long',
+      year: 'numeric'
+    });
+  };
+
+  const daysInMonth = getDaysInMonth();
+  const firstDayOffset = getFirstDayOfMonth();
+
+  return (
+    <div className="calendar-container1">
+      <div className="calendar-header">
+        <button className="calendar-nav-button" onClick={prevMonth}>&lt;</button>
+        <h3>{formatMonthYear()}</h3>
+        <button className="calendar-nav-button" onClick={nextMonth}>&gt;</button>
+      </div>
+      <div className="calendar-grid">
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+          <div key={day} className="calendar-weekday">{day}</div>
+        ))}
+        {Array.from({ length: firstDayOffset }).map((_, i) => (
+          <div key={`empty-${i}`} className="calendar-day disabled"></div>
+        ))}
+        {daysInMonth.map(day => {
+          const leave = isLeaveDay(day);
+          return (
+            <div
+              key={day.getTime()}
+              className={`calendar-day 
+                ${isSameDay(day, selectedDate) ? 'selected' : ''}
+                ${leave ? leave.type : ''}`}
+              onClick={() => setSelectedDate(day)}
+              title={leave ? `${leave.leaveType} Leave` : ''}
+            >
+              {day.getDate()}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const Announcements = ({ announcements, loading }) => {
+  const [activeTab, setActiveTab] = useState('system');
+
+  const getIcon = (type) => {
+    switch (type) {
+      case 'urgent':
+        return <FontAwesomeIcon icon={faExclamationTriangle} className="announcement-icon urgent" />;
+      case 'info':
+        return <FontAwesomeIcon icon={faInfoCircle} className="announcement-icon info" />;
+      default:
+        return <FontAwesomeIcon icon={faBullhorn} className="announcement-icon" />;
+    }
+  };
+
+  const filteredAnnouncements = announcements.filter(
+    announcement => announcement.category === activeTab
+  );
+
+  return (
+    <div className="announcements-container">
+      <div className="announcements-header">
+        <h3>Announcements</h3>
+        <div className="announcement-tabs">
+          <button 
+            className={`tab-button ${activeTab === 'system' ? 'active' : ''}`}
+            onClick={() => setActiveTab('system')}
+          >
+            System
+          </button>
+          <button 
+            className={`tab-button ${activeTab === 'admin' ? 'active' : ''}`}
+            onClick={() => setActiveTab('admin')}
+          >
+            Admin
+          </button>
+        </div>
+      </div>
+      <div className="announcements-content">
+        {loading ? (
+          <div className="loading-announcements">
+            <FontAwesomeIcon icon={faSpinner} spin />
+            <p>Loading announcements...</p>
+          </div>
+        ) : filteredAnnouncements.length > 0 ? (
+          filteredAnnouncements.map((announcement, index) => (
+            <div key={announcement.id || index} className={`announcement-item ${announcement.type}`}>
+              <div className="announcement-icon-container">
+                {getIcon(announcement.type)}
+              </div>
+              <div className="announcement-details">
+                <h4>{announcement.title}</h4>
+                <p>{announcement.message}</p>
+                <div className="announcement-meta">
+                  <span className="announcement-date">{announcement.date}</span>
+                  {announcement.type === 'urgent' && (
+                    <span className="urgent-tag">URGENT</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="no-announcements">
+            <p>No {activeTab} announcements at this time</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const UserProfile = ({ user, logout }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const navigate = useNavigate();
 
-  const toggleMenu = () => {
-    setIsMenuOpen(!isMenuOpen);
-  };
-
+  const toggleMenu = () => setIsMenuOpen(!isMenuOpen);
   const goToSettings = () => {
     navigate('/settings');
     setIsMenuOpen(false);
@@ -349,9 +309,8 @@ const UserProfile = ({ user, logout }) => {
     setIsMenuOpen(false);
   };
 
-  // Get first name only
-  const firstName = user.name ? user.name.split(' ')[0] : 'User';
-  const displayName = user.rank ? `${user.rank} ${firstName}` : firstName;
+  const firstName = user?.name?.split(' ')[0] || 'User';
+  const displayName = user?.rank ? `${user.rank} ${firstName}` : firstName;
 
   return (
     <div className="user-profile-container">
@@ -370,9 +329,9 @@ const UserProfile = ({ user, logout }) => {
               <FontAwesomeIcon icon={faUser} />
             </div>
             <div className="user-menu-details">
-              <div className="user-menu-name">{user.name || 'Unknown User'}</div>
-              <div className="user-menu-rank">{user.rank || 'N/A'}</div>
-              <div className="user-menu-email">{user.email || 'N/A'}</div>
+              <div className="user-menu-name">{user?.name || 'User'}</div>
+              <div className="user-menu-rank">{user?.rank || 'Rank'}</div>
+              <div className="user-menu-email">{user?.email || ''}</div>
             </div>
           </div>
           <div className="user-menu-divider"></div>
@@ -382,7 +341,7 @@ const UserProfile = ({ user, logout }) => {
               <span>Settings</span>
             </li>
             <li onClick={handleLogout}>
-              <FontAwesomeIcon icon={faSignOutAlt} />
+              <FontAwesomeIcon icon={solidIcons.faSignOutAlt} />
               <span>Logout</span>
             </li>
           </ul>
@@ -392,370 +351,207 @@ const UserProfile = ({ user, logout }) => {
   );
 };
 
+
 const Dashboard = () => {
-  const { user: contextUser, logout: contextLogout } = useContext(AuthContext);
-  const navigate = useNavigate();
-  const location = useLocation();
-  const [activeMenu, setActiveMenu] = useState('dashboard');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [dataLoading, setDataLoading] = useState({
-    overview: true,
-    entitlement: true,
-    announcements: true,
-    previousLeaves: true
-  });
-  const [error, setError] = useState({});
-  const [authError, setAuthError] = useState(null);
-
-  // Create API call function with logout
-  const apiCall = createApiCall(contextLogout);
-
-  const validateTokenAndUser = () => {
-    console.log("=== Token Validation ===");
-    
-    // Use the auth API to check authentication
-    if (!authAPI.isAuthenticated()) {
-      console.log("Not authenticated - redirecting to login");
-      return null;
-    }
-    
-    const user = authAPI.getCurrentUser();
-    console.log("Current user:", user);
-    
-    if (!user) {
-      console.log("No user data found");
-      return null;
-    }
-    
-    // Normalize the user object
-    const normalizedUser = {
-      ...user,
-      id: user.id || user.uid,
-      name: user.name || user.displayName || 'Unknown User',
-      email: user.email
-    };
-    
-    if (!normalizedUser.id || !normalizedUser.email) {
-      console.log("User missing required fields");
-      return null;
-    }
-    
-    return normalizedUser;
-  };
-  
-  // State for API data
+  const { user: authUser, logout } = useAuth();
   const [overviewData, setOverviewData] = useState({
+    total: 0,
     approved: 0,
     pending: 0,
     rejected: 0,
-    total: 0,
     leaveDays: [],
     recentRequests: []
   });
-  
-  const [entitlementData, setEntitlementData] = useState({
-    totalLeaves: 0,
-    usedLeaves: 0,
-    remainingLeaves: 0,
-    leaveTypes: []
-  });
-  
-  const [announcementsData, setAnnouncementsData] = useState([]);
+  const [entitlementData, setEntitlementData] = useState(null);
   const [previousLeaves, setPreviousLeaves] = useState([]);
+  const [announcementsData, setAnnouncementsData] = useState([]);
   const [leaveData, setLeaveData] = useState({
     leaveType: '',
     startDate: '',
     endDate: '',
     reason: '',
-    attachments: null
+    attachments: []
   });
+  const [dataLoading, setDataLoading] = useState({
+    overview: true,
+    entitlement: true,
+    previousLeaves: true,
+    announcements: true
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState({});
+  const [activeMenu, setActiveMenu] = useState('dashboard');
   
-  const [user, setUser] = useState({
-    name: "Loading...",
-    email: "",
-    rank: "", 
-    role: "soldier",
-    id: ""
+  const navigate = useNavigate();
+  const location = useLocation();
+  
+  // Add refs to prevent duplicate calls
+  const fetchInProgress = useRef(false);
+  const abortControllerRef = useRef(null);
+  const lastFetchTime = useRef(0);
+
+  const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+  
+  const apiClient = axios.create({
+    baseURL: API_BASE_URL,
+    timeout: 20000, // Increased timeout for batch requests
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    }
   });
 
-  const ensureValidToken = async () => {
-    const token = localStorage.getItem('token');
-    
-    if (!token) {
-      throw new Error('No authentication token found');
+  const fetchData = async () => {
+    if (!authUser?.uid) {
+      console.log('No auth user - skipping fetch');
+      return;
     }
-    
-    // For Firebase tokens, we need to validate differently
-    if (token.startsWith('eyJh')) {
-      // This is likely a Firebase ID token
-      try {
-        // Firebase tokens can be validated by attempting to use them
-        // If expired, Firebase will return 401 and we handle it in the API call
-        return token;
-      } catch (error) {
-        console.error('Firebase token validation error:', error);
-        throw error;
-      }
+
+    // Prevent duplicate calls within 1 second
+    const now = Date.now();
+    if (fetchInProgress.current || (now - lastFetchTime.current < 1000)) {
+      console.log('Fetch already in progress or too recent, skipping...');
+      return;
     }
-    
-    // For other JWT tokens
+
+    fetchInProgress.current = true;
+    lastFetchTime.current = now;
+
+    // Cancel previous request if exists
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Create new abort controller
+    abortControllerRef.current = new AbortController();
+
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      const currentTime = Math.floor(Date.now() / 1000);
+      console.log('Starting batch data fetch for user:', authUser.uid);
       
-      if (payload.exp && payload.exp < currentTime) {
-        console.log('Token expired - requiring re-authentication');
-        throw new Error('Token expired');
-      }
-      return token;
-    } catch (error) {
-      console.error('Token validation error:', error);
-      throw error;
-    }
-  };
+      // Get fresh token
+      const token = await authUser.getIdToken(true);
+      console.log('Token refreshed successfully');
+      
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      };
 
-
-  
-  const refreshAccessToken = async (retryCount = 0) => {
-    const MAX_RETRIES = 2;
-    const refreshToken = localStorage.getItem('refreshToken');
-    
-    if (!refreshToken) {
-      console.error('No refresh token available');
-      await clearAuthAndRedirect();
-      throw new Error('Session expired');
-    }
-  
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Request-Id': crypto.randomUUID() // For tracking requests
-        },
-        body: JSON.stringify({ token: refreshToken })
+      // Set loading states
+      setDataLoading({
+        overview: true,
+        entitlement: true,
+        previousLeaves: true,
+        announcements: true
       });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        
-        // Handle specific error cases
-        if (response.status === 401 || response.status === 403) {
-          console.error('Refresh token rejected:', errorData);
-          await clearAuthAndRedirect();
-          throw new Error('Session expired');
+
+      // Clear previous errors
+      setError({});
+
+      console.log('Making batch request to:', `/dashboard/batch/${authUser.uid}`);
+
+      // Single batch request
+      const response = await apiClient.get(`/dashboard/batch/${authUser.uid}`, {
+        headers,
+        signal: abortControllerRef.current.signal
+      });
+
+      console.log('Batch request completed successfully');
+
+      const { data, errors } = response.data;
+
+      // Set data from batch response
+      if (data.overview) {
+        setOverviewData(data.overview);
+      }
+      if (data.entitlement) {
+        setEntitlementData(data.entitlement);
+      }
+      if (data.previousLeaves) {
+        setPreviousLeaves(Array.isArray(data.previousLeaves) ? data.previousLeaves : []);
+      }
+      if (data.announcements) {
+        setAnnouncementsData(Array.isArray(data.announcements) ? data.announcements : []);
+      }
+
+      // Handle any errors from batch response
+      if (errors) {
+        const hasErrors = Object.values(errors).some(error => error !== null);
+        if (hasErrors) {
+          console.warn('Some data failed to load:', errors);
+          setError(errors);
         }
-        
-        // Retry for server errors
-        if (response.status >= 500 && retryCount < MAX_RETRIES) {
-          console.warn(`Retrying refresh (attempt ${retryCount + 1})`);
-          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
-          return refreshAccessToken(retryCount + 1);
-        }
-        
-        throw new Error(errorData.message || 'Token refresh failed');
       }
-  
-      const { accessToken, refreshToken: newRefreshToken } = await response.json();
-      
-      // Validate new tokens
-      if (!accessToken) {
-        throw new Error('No access token in response');
-      }
-      
-      localStorage.setItem('accessToken', accessToken);
-      if (newRefreshToken) {
-        localStorage.setItem('refreshToken', newRefreshToken);
-      }
-      
-      console.log('Token refresh successful');
-      return accessToken;
-      
+
+      console.log('Batch data fetch completed successfully');
+
     } catch (error) {
-      console.error('Refresh failed:', error);
+      console.error('Batch fetch error:', error);
       
-      // Don't retry for network errors if we've already retried
-      if (retryCount >= MAX_RETRIES || error.message === 'Session expired') {
-        await clearAuthAndRedirect();
-      }
-      
-      throw error;
-    }
-  };
-  
-  const clearAuthAndRedirect = async () => {
-    // Clear all auth-related items
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
-    
-    // Optional: Clear any cached sensitive data
-    // await caches.delete('auth-data');
-    
-    // Redirect to login with state for recovery
-    navigate('/login', { 
-      state: { 
-        from: window.location.pathname,
-        reason: 'session_expired'
-      } 
-    });
-  };
-
-  // Enhanced fetch functions with auth error handling
-  const fetchOverviewData = async (userId) => {
-    try {
-      setDataLoading(prev => ({ ...prev, overview: true }));
-      
-      // No need to manually check tokens - the interceptor handles it
-      const response = await apiCall(`/dashboard/overview/${userId}`);
-      
-      if (response.success) {
-        const { overview, leaveDays, recentRequests } = response.data;
-        setOverviewData({
-          approved: overview.approved,
-          pending: overview.pending,
-          rejected: overview.rejected,
-          total: overview.total,
-          leaveDays: leaveDays.map(day => ({
-            date: new Date(day.date),
-            endDate: new Date(day.endDate),
-            type: day.type,
-            leaveType: day.leaveType
-          })),
-          recentRequests
-        });
-        setError(prev => ({ ...prev, overview: null }));
-      }
-    } catch (err) {
-      console.error('Error fetching overview data:', err);
-      setError(prev => ({ ...prev, overview: err.message }));
-    } finally {
-      setDataLoading(prev => ({ ...prev, overview: false }));
-    }
-  };
-
-  const fetchEntitlementData = async (userId) => {
-    try {
-      setDataLoading(prev => ({ ...prev, entitlement: true }));
-      const response = await apiCall(`/dashboard/entitlement/${userId}`);
-  
-      if (response.success) {
-        const leaveTypes = response.data.leaveTypes;
-        const usedLeaves = leaveTypes.reduce((sum, lt) => sum + lt.used, 0);
-        const remainingLeaves = leaveTypes.reduce((sum, lt) => sum + lt.remaining, 0);
-        const totalLeaves = usedLeaves + remainingLeaves;
-  
-        setEntitlementData({
-          totalLeaves,
-          usedLeaves,
-          remainingLeaves,
-          leaveTypes
-        });
-  
-        setError(prev => ({ ...prev, entitlement: null }));
-      }
-    } catch (err) {
-      console.error('Error fetching entitlement data:', err);
-      setError(prev => ({ ...prev, entitlement: err.message }));
-    } finally {
-      setDataLoading(prev => ({ ...prev, entitlement: false }));
-    }
-  };
-  
-  
-  const fetchAnnouncements = async () => {
-    try {
-      setDataLoading(prev => ({ ...prev, announcements: true }));
-      const response = await apiCall('/dashboard/announcements');
-      
-      if (response.success) {
-        setAnnouncementsData(response.data);
-        setError(prev => ({ ...prev, announcements: null }));
-      }
-    } catch (err) {
-      console.error('Error fetching announcements:', err);
-      setError(prev => ({ ...prev, announcements: err.message }));
-    } finally {
-      setDataLoading(prev => ({ ...prev, announcements: false }));
-    }
-  };
-
-  const fetchPreviousLeaves = async (userId) => {
-    try {
-      setDataLoading(prev => ({ ...prev, previousLeaves: true }));
-      const response = await apiCall(`/dashboard/previous-leaves/${userId}?limit=5`);
-      
-      if (response.success) {
-        const mappedLeaves = response.data.map(leave => ({
-          id: leave.id,
-          leaveType: leave.type,
-          startDate: leave.start,
-          endDate: leave.end,
-          leaveDays: leave.days,
-          status: leave.status,
-          reason: leave.reason,
-          createdAt: leave.createdAt,
-          approvedBy: leave.approvedBy,
-          rejectionReason: leave.rejectionReason
-        }));
-        
-        setPreviousLeaves(mappedLeaves);
-        setError(prev => ({ ...prev, previousLeaves: null }));
-      }
-    } catch (err) {
-      console.error('Error fetching previous leaves:', err);
-      setError(prev => ({ ...prev, previousLeaves: err.message }));
-    } finally {
-      setDataLoading(prev => ({ ...prev, previousLeaves: false }));
-    }
-  };
-
-  useEffect(() => {
-    const initializeDashboard = async () => {
-      console.log("=== Dashboard Initialization ===");
-      
-      // 1. Validate token and get user
-      const currentUser = validateTokenAndUser();
-      if (!currentUser) {
-        console.log("Invalid token or user - redirecting to login");
-        navigate("/login");
+      if (error.name === 'AbortError') {
+        console.log('Fetch aborted');
         return;
       }
-  
-      // 2. Set user state
-      setUser(currentUser);
-  
-      console.log("Starting data fetch for user:", currentUser.id);
       
-      // 3. Fetch all data - the auth interceptor will handle token refresh automatically
-      try {
-        await Promise.allSettled([
-          fetchOverviewData(currentUser.id),
-          fetchEntitlementData(currentUser.id),
-          fetchPreviousLeaves(currentUser.id),
-          fetchAnnouncements()
-        ]);
-      } catch (error) {
-        console.error("Data fetch error:", error);
-        // The interceptor already handled auth errors, so this is likely a network issue
-        setError(prev => ({ ...prev, general: error.message }));
-      }
-  
-      // 4. Handle scroll behavior
-      if (location.state?.scrollToApplyForLeave) {
-        setTimeout(() => {
-          const element = document.getElementById('apply-for-leave');
-          if (element) element.scrollIntoView({ behavior: 'smooth' });
-        }, 2000);
+      if (error.response?.status === 401 || error.message.includes('token')) {
+        console.log('Authentication error - logging out');
+        logout();
       } else {
-        window.scrollTo(0, 0);
+        setError({
+          overview: 'Failed to load data',
+          entitlement: 'Failed to load data',
+          previousLeaves: 'Failed to load data',
+          announcements: 'Failed to load data'
+        });
+      }
+    } finally {
+      console.log('Setting loading states to false');
+      setDataLoading({
+        overview: false,
+        entitlement: false,
+        previousLeaves: false,
+        announcements: false
+      });
+      fetchInProgress.current = false;
+    }
+  };
+
+ 
+  // Improved useEffect with proper cleanup and debouncing
+  useEffect(() => {
+    if (!authUser?.uid) return;
+
+    // Debounce the fetch call
+    const timeoutId = setTimeout(() => {
+      fetchData();
+    }, 300); // 300ms debounce
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      fetchInProgress.current = false;
+    };
+  }, [authUser?.uid]); // Only depend on uid
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
       }
     };
+  }, []);
+  // Manual refresh function
+  const refreshData = useCallback(async () => {
+    fetchInProgress.current = false;
+    lastFetchTime.current = 0;
+    await fetchData();
+  }, [authUser?.uid]);
+
+  // ====== OTHER HANDLER FUNCTIONS (AFTER useEffect) ======
   
-    initializeDashboard();
-  }, [navigate, location.state, contextLogout]);
-  
-  // File handling functions (unchanged)
   const handleFileChange = (e) => {
     const files = e.target.files;
     setLeaveData(prev => ({
@@ -792,27 +588,43 @@ const Dashboard = () => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setLeaveData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
   const handleLeaveSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
   
     try {
-      const response = await apiCall('/dashboard/apply', {
-        method: 'POST',
-        body: JSON.stringify({
-          leaveType: leaveData.leaveType,
-          startDate: leaveData.startDate,
-          endDate: leaveData.endDate,
-          reason: leaveData.reason
-        })
+      const formData = new FormData();
+      formData.append('leaveType', leaveData.leaveType);
+      formData.append('startDate', leaveData.startDate);
+      formData.append('endDate', leaveData.endDate);
+      formData.append('reason', leaveData.reason);
+      
+      if (leaveData.attachments) {
+        Array.from(leaveData.attachments).forEach(file => {
+          formData.append('attachments', file);
+        });
+      }
+  
+      const response = await axios.post('/dashboard/apply', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
       });
   
-      if (response.success) {
+      if (response.data.success) {
         // Calculate days difference
         const start = new Date(leaveData.startDate);
         const end = new Date(leaveData.endDate);
         const timeDiff = end.getTime() - start.getTime();
-        const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1; // +1 to include both start and end days
+        const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1;
   
         // Update entitlement data
         setEntitlementData(prev => {
@@ -853,51 +665,63 @@ const Dashboard = () => {
   
         alert('Leave request submitted successfully!');
   
-        // Refresh data
-        if (user.id) {
-          fetchOverviewData(user.id);
-          fetchEntitlementData(user.id);
-          fetchPreviousLeaves(user.id);
-        }
+        // Refresh data - REPLACED THE THREE FUNCTIONS WITH fetchData()
+        await fetchData();
       }
     } catch (error) {
-      // ... existing error handling
+      console.error('Leave submission error:', error);
+      const errorMessage = error.response?.data?.message || 'Failed to submit leave request';
+      alert(errorMessage);
     } finally {
       setIsSubmitting(false);
     }
   };
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setLeaveData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
-
-  const approvalRate = overviewData.total > 0 
-    ? Math.round((overviewData.approved / overviewData.total) * 100) 
-    : 0;
-
-  return (
-    <div className="dashboard-container">
-      <Sidebar activeMenu={activeMenu } setActiveMenu={setActiveMenu} />
-      
-      <div className="main-content">
-        <div className="header" id="dashboard-top">
-          <h1>Dashboard</h1>
-          <UserProfile user={user} logout={contextLogout} />
+  // Loading check - FIXED
+  const isLoading = Object.values(dataLoading).some(loading => loading === true);
+  
+  if (isLoading) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        flexDirection: 'column' 
+      }}>
+        <div style={{ fontSize: '18px', marginBottom: '10px' }}>
+          Loading Dashboard...
         </div>
+      </div>
+    );
+  }
 
-        {/* Auth Error Display */}
-        {authError && (
-          <div className="auth-error">
-            <FontAwesomeIcon icon={faExclamationTriangle} />
-            {authError}
-            <button onClick={() => navigate('/login')}>Login</button>
-          </div>
-        )}
+  const approvalRate = overviewData?.total > 0 
+  ? Math.round((overviewData.approved / overviewData.total) * 100) 
+  : 0;
 
+return (
+  <div className="dashboard-container">
+    <Sidebar activeMenu={activeMenu} setActiveMenu={setActiveMenu} />
+    
+    <div className="main-content">
+      <div className="header" id="dashboard-top">
+        <h1>Dashboard</h1>
+        <UserProfile user={authUser} logout={logout} />
+      </div>
+
+      {/* Error Messages */}
+      {Object.values(error).some(err => err) && (
+        <div className="error-container">
+          {Object.entries(error).map(([key, err]) => 
+            err && (
+              <div key={key} className="error-message">
+                <FontAwesomeIcon icon={faExclamationTriangle} />
+                Error loading {key}: {err}
+              </div>
+            )
+          )}
+        </div>
+      )}
 
         {/* Stats Cards */}
         <div className="stats-container">
@@ -906,7 +730,7 @@ const Dashboard = () => {
               <img src="/icons/total-requests.png" alt="Total Requests" />
             </div>
             <h3>Total Leave Requests</h3>
-            <h2>{dataLoading.overview ? '...' : overviewData.total}</h2>
+            <h2>{dataLoading.overview ? '...' : overviewData?.total || 0}</h2>
             <p>All time requests</p>
           </div>
           <div className="stat-card">
@@ -914,7 +738,7 @@ const Dashboard = () => {
               <img src="/icons/approved.png" alt="Approved" />
             </div>
             <h3>Approved</h3>
-            <h2>{dataLoading.overview ? '...' : overviewData.approved}</h2>
+            <h2>{dataLoading.overview ? '...' : overviewData.approved || 0}</h2>
             <p>{approvalRate}% approval rate</p>
           </div>
           <div className="stat-card">
@@ -922,7 +746,7 @@ const Dashboard = () => {
               <img src="/icons/pending1.png" alt="Pending" />
             </div>
             <h3>Pending</h3>
-            <h2>{dataLoading.overview ? '...' : overviewData.pending}</h2>
+            <h2>{dataLoading.overview ? '...' : overviewData.pending || 0}</h2>
             <p>Awaiting approval</p>
           </div>
           <div className="stat-card">
@@ -930,7 +754,7 @@ const Dashboard = () => {
               <img src="/icons/rejected.png" alt="Rejected" />
             </div>  
             <h3>Rejected</h3>
-            <h2>{dataLoading.overview ? '...' : overviewData.rejected}</h2>
+            <h2>{dataLoading.overview ? '...' : overviewData.rejected || 0}</h2>
             <p>Need revision</p>
           </div>
         </div>
@@ -969,21 +793,21 @@ const Dashboard = () => {
                     <div className="leave-number-item">
                       <div className="leave-number">
                         <span className="color-dot approved"></span>
-                        {overviewData.approved}
+                        {overviewData?.approved || 0}
                       </div>
                       <div className="leave-label">Approved</div>
                     </div>
                     <div className="leave-number-item">
                       <div className="leave-number">
                         <span className="color-dot pending"></span>
-                        {overviewData.pending}
+                        {overviewData?.pending || 0}
                       </div>
                       <div className="leave-label">Pending</div>
                     </div>
                     <div className="leave-number-item">
                       <div className="leave-number">
                         <span className="color-dot rejected"></span>
-                        {overviewData.rejected}
+                        {overviewData?.rejected || 0}
                       </div>
                       <div className="leave-label">Rejected</div>
                     </div>
@@ -992,10 +816,10 @@ const Dashboard = () => {
                   {/* Circular Chart */}
                   <div className="chart-container">
                     <CircularChart 
-                      approved={overviewData.approved}
-                      pending={overviewData.pending}
-                      rejected={overviewData.rejected}
-                      total={overviewData.total}
+                      approved={overviewData?.approved || 0}
+                      pending={overviewData?.pending || 0}
+                      rejected={overviewData?.rejected || 0}
+                      total={overviewData?.total || 0}
                     />
                   </div>
                 </>
@@ -1006,7 +830,7 @@ const Dashboard = () => {
           {/* Calendar and Announcements */}
           <div className="calendar-announcements-wrapper">
             <div className="calendar-section">
-              <Calendar leaveDays={overviewData.leaveDays} />
+              <Calendar leaveDays={overviewData?.leaveDays || []} />
             </div>
             <div className="announcements-section">
               <Announcements 
@@ -1179,77 +1003,77 @@ const Dashboard = () => {
                       </ul>
                     </div>
                   </div>
-                
-                  <div className="form-actions">
-                    <button type="submit" className="submit-btn" disabled={isSubmitting}>
-                      {isSubmitting ? (
-                        <>
-                          <FontAwesomeIcon icon={faSpinner} spin />
-                          Submitting...
-                        </>
-                      ) : (
-                        <>
-                          <FontAwesomeIcon icon={faPaperPlane} />
-                          Submit Request
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </form>
-            </div>
-            
-            {/* Previous Leaves Table */}
-            <div className="previous-leaves-section">
-              {dataLoading.previousLeaves ? (
-                <div className="loading-section">
-                  <FontAwesomeIcon icon={faSpinner} spin />
-                  <p>Loading leave history...</p>
-                </div>
-              ) : (
-                <div className="leaves-table-container">
-                  <div className="leaves-table">
-                    <div className="table-header">
-                      <div>Type</div>
-                      <div>Start Date</div>
-                      <div>End Date</div>
-                      <div>Days</div>
-                      <div>Status</div>
+                  
+                    <div className="form-actions">
+                      <button type="submit" className="submit-btn" disabled={isSubmitting}>
+                        {isSubmitting ? (
+                          <>
+                            <FontAwesomeIcon icon={faSpinner} spin />
+                            Submitting...
+                          </>
+                        ) : (
+                          <>
+                            <FontAwesomeIcon icon={faPaperPlane} />
+                            Submit Request
+                          </>
+                        )}
+                      </button>
                     </div>
-                    
-                    {previousLeaves.length > 0 ? (
-                      previousLeaves.map(leave => (
-                        <div key={leave.id} className="table-row" onClick={() => navigate(`/leave/${leave.id}`)}>
-                          <div>{leave.leaveType}</div>
-                          <div>{new Date(leave.startDate).toLocaleDateString()}</div>
-                          <div>{new Date(leave.endDate).toLocaleDateString()}</div>
-                          <div>{leave.leaveDays}</div>
-                          <div className={`status ${leave.status.toLowerCase()}`}>
-                            {leave.status}
-                            {leave.status === 'rejected' && leave.rejectionReason && (
-                              <div className="rejection-tooltip">
-                                {leave.rejectionReason}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="no-leaves">
-                        <FontAwesomeIcon icon={faFileAlt} />
-                        <p>No previous leave requests found</p>
-                      </div>
-                    )}
                   </div>
-                </div>
-              )}
+                </form>
+              </div>
+              
+              {/* Previous Leaves Table */}
+              <div className="previous-leaves-section">
+                {dataLoading.previousLeaves ? (
+                  <div className="loading-section">
+                    <FontAwesomeIcon icon={faSpinner} spin />
+                    <p>Loading leave history...</p>
+                  </div>
+                ) : (
+                  <div className="leaves-table-container">
+                    <div className="leaves-table">
+                      <div className="table-header">
+                        <div>Type</div>
+                        <div>Start Date</div>
+                        <div>End Date</div>
+                        <div>Days</div>
+                        <div>Status</div>
+                      </div>
+                      
+                      {previousLeaves.length > 0 ? (
+                        previousLeaves.map(leave => (
+                          <div key={leave.id} className="table-row" onClick={() => navigate(`/leave/${leave.id}`)}>
+                            <div>{leave.leaveType}</div>
+                            <div>{new Date(leave.startDate).toLocaleDateString()}</div>
+                            <div>{new Date(leave.endDate).toLocaleDateString()}</div>
+                            <div>{leave.leaveDays}</div>
+                            <div className={`status ${leave.status.toLowerCase()}`}>
+                              {leave.status}
+                              {leave.status === 'rejected' && leave.rejectionReason && (
+                                <div className="rejection-tooltip">
+                                  {leave.rejectionReason}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="no-leaves">
+                          <FontAwesomeIcon icon={faFileAlt} />
+                          <p>No previous leave requests found</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
+        <FloatingChatBot />
       </div>
-      <FloatingChatBot />
-    </div>
-  );
-};
+    );
+  };
 
-export default Dashboard;
+  export default Dashboard;

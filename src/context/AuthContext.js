@@ -1,50 +1,53 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+// AuthContext.js
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { auth } from '../firebase-config';
+import { onAuthStateChanged, signOut } from "firebase/auth";
 
-// Create the AuthContext
 const AuthContext = createContext();
 
-// Provider component
-export const AuthProvider = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+export function AuthProvider({ children }) {
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Simulated auth check (replace with real logic if needed)
   useEffect(() => {
-    const checkAuth = async () => {
-      setLoading(true);
-      try {
-        const token = localStorage.getItem('token');
-        if (token) {
-          setIsAuthenticated(true);
-        } else {
-          setIsAuthenticated(false);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          const token = await firebaseUser.getIdToken(true);
+          setUser({
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            token,
+            getIdToken: async (forceRefresh = false) => {
+              return await firebaseUser.getIdToken(forceRefresh);
+            }
+          });
+        } catch (error) {
+          console.error('Token refresh error:', error);
+          setUser(null);
         }
-      } catch (err) {
-        setIsAuthenticated(false);
-      } finally {
-        setLoading(false);
+      } else {
+        setUser(null);
       }
-    };
+      setLoading(false);
+    });
 
-    checkAuth();
+    return unsubscribe;
   }, []);
 
-  const login = (token) => {
-    localStorage.setItem('token', token);
-    setIsAuthenticated(true);
-  };
-
-  const logout = () => {
-    localStorage.removeItem('token');
-    setIsAuthenticated(false);
+  const logout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, loading, login, logout }}>
-      {children}
+    <AuthContext.Provider value={{ user, loading, logout }}>
+      {!loading && children}
     </AuthContext.Provider>
   );
-};
+}
 
-// Hook to use auth context
 export const useAuth = () => useContext(AuthContext);

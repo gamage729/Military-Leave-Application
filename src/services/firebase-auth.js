@@ -1,9 +1,9 @@
-// src/services/firebase-auth.js
 import { auth, db } from '../firebase-config';
 import { 
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
-  updateProfile
+  updateProfile,
+  signOut  // Add this import
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 
@@ -26,8 +26,11 @@ export const firebaseRegister = async (userData) => {
       createdAt: new Date().toISOString()
     });
 
-    // Get the ID token
+    // Get the ID token before signing out
     const accessToken = await userCredential.user.getIdToken();
+
+    // Immediately sign out the user after registration
+    await signOut(auth);
 
     return {
       data: {
@@ -38,7 +41,7 @@ export const firebaseRegister = async (userData) => {
           rank,
           role
         },
-        accessToken,
+        accessToken,  // Still return the token if needed for immediate backend operations
         refreshToken: userCredential.user.refreshToken
       }
     };

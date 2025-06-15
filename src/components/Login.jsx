@@ -1,85 +1,54 @@
-// Updated Login.jsx
-import React, { useState, useContext } from "react";
-import { firebaseLogin } from "../services/api";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import "../styles/LoginStyles.css";
 import { useAuth } from "../context/AuthContext";
-import { authAPI } from "../utils/auth"; // Add this import
+import { firebaseLogin } from "../services/firebase-auth";
+import "../styles/LoginStyles.css";
+
 
 const Login = () => {
-  const { login } = useAuth();
+  const navigate = useNavigate();
+  const { user } = useAuth(); // Now properly using the 'user' value
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const navigate = useNavigate();
+
+  // Redirect if already logged in
+  React.useEffect(() => {
+    if (user) {
+      navigate('/dashboard');
+    }
+  }, [user, navigate]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    setLoading(true);
     setError("");
-    setIsLoading(true);
 
     try {
-      const res = await firebaseLogin(email, password);
-      console.log("✅ Firebase login response:", res);
-
-      if (!res || !res.uid || !res.token) {
-        throw new Error("Invalid response from Firebase.");
-      }
-
-      // Use the new authAPI method to store Firebase auth data
-      authAPI.storeFirebaseAuth(
-        res.uid,
-        res.email,
-        res.token,
-        {
-          name: res.displayName || res.email.split('@')[0] || 'User',
-          rank: res.rank || '',
-          role: res.role || 'soldier'
-        }
-      );
-
-      // Update auth context
-      login(res.token, { 
-        uid: res.uid, 
-        email: res.email,
-        name: res.displayName || res.email.split('@')[0] || 'User'
-      });
-
-      console.log("✅ Stored user and token, navigating...");
-      
-      // Debug storage to verify
-      authAPI.debugStorage();
-      
-      navigate("/dashboard", {
-        replace: true,
-        state: { fromLogin: true }
-      });
-    } catch (error) {
-      console.error("❌ Login error:", error);
-      setError(error.message || "Login failed. Please try again.");
-      
-      // Clear any partial auth data on failure using authAPI
-      authAPI.logout();
+      await firebaseLogin({ email, password });
+      // The auth state change will automatically trigger the redirect
+    } catch (err) {
+      setError("Invalid email or password");
+      console.error("Login error:", err);
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
   return (
     <div className="login-page">
-      <div className="overlay"></div>
       <div className="login-container">
-        <h2 className="login-title">Special Force</h2>
-        <p className="login-subtitle">Serving Our Country</p>
-        <form onSubmit={handleLogin} className="login-form">
+        <h2>System Access</h2>
+        {error && <div className="error-message">{error}</div>}
+        <form onSubmit={handleLogin}>
           <input
             type="email"
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            className="login-input"
+            disabled={loading}
           />
           <input
             type="password"
@@ -87,17 +56,15 @@ const Login = () => {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            className="login-input"
+            disabled={loading}
           />
-          {error && <p className="error-message">{error}</p>}
-          <button 
-            type="submit" 
-            className="login-button"
-            disabled={isLoading}
-          >
-            {isLoading ? "Logging in..." : "Login"}
+          <button type="submit" disabled={loading}>
+            {loading ? "Logging in..." : "Login"}
           </button>
         </form>
+        <p className="register-link">
+          Don't have an account? <a href="/register">Register</a>
+        </p>
       </div>
     </div>
   );

@@ -2,7 +2,8 @@ import React, { useState } from "react";
 import { firebaseRegister } from "../services/firebase-auth";
 import { useNavigate } from "react-router-dom";
 import "../styles/RegisterStyles.css";
-import axios from "axios";
+import { db } from "../firebase-config";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 const Register = () => {
   const [form, setForm] = useState({
@@ -14,26 +15,41 @@ const Register = () => {
   });
   const [regNumber, setRegNumber] = useState("");
   const [loading, setLoading] = useState(false);
+  const [regNumberError, setRegNumberError] = useState("");
   const navigate = useNavigate();
 
-  // Debug function to test the token
-  const debugToken = async (accessToken) => {
+  const validateRegNumber = async (number) => {
+    setRegNumberError("");
+    if (!number || !number.trim()) {
+      setRegNumberError("Please enter a regimental number");
+      return false;
+    }
+
     try {
-      console.log('🔍 Debug: Testing token with backend...');
-      const response = await axios.post(
-        "http://localhost:5001/auth/test-token",
-        {},
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-      console.log('✅ Token test successful:', response.data);
+      console.log("Validating reg number:", number);
+      const docRef = doc(db, "soldiers", number.trim());
+      console.log("Document reference created");
+      
+      const docSnap = await getDoc(docRef);
+      console.log("Document snapshot received:", docSnap.exists());
+      
+      if (!docSnap.exists()) {
+        setRegNumberError("Soldier ID not found in system");
+        return false;
+      }
+      
+      const soldierData = docSnap.data();
+      console.log("Soldier data:", soldierData);
+      
+      if (soldierData.registered) {
+        setRegNumberError("This soldier ID is already registered");
+        return false;
+      }
+      
       return true;
     } catch (error) {
-      console.error('❌ Token test failed:', error.response?.data || error.message);
+      console.error("Validation error details:", error);
+      setRegNumberError("System error validating ID. Please try again.");
       return false;
     }
   };
@@ -41,10 +57,17 @@ const Register = () => {
   const handleRegister = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setRegNumberError("");
 
     try {
-      // Step 1: Register with Firebase Auth
-      console.log("🚀 Starting Firebase registration...");
+      console.log("Starting registration for:", regNumber);
+      
+      // Validate regimental number
+      if (!await validateRegNumber(regNumber)) {
+        throw new Error(regNumberError);
+      }
+
+      // Register with Firebase Auth
       const firebaseResponse = await firebaseRegister({
         email: form.email,
         password: form.password,
@@ -52,96 +75,29 @@ const Register = () => {
         rank: form.rank,
         role: form.role,
       });
+      console.log("Firebase registration successful");
 
-      console.log("✅ Firebase registration response:", firebaseResponse);
-
-      // Step 2: Get the ID token from Firebase response
-      const { accessToken } = firebaseResponse.data;
-      
-      if (!accessToken) {
-        throw new Error('No access token received from Firebase registration');
-      }
-      
-      console.log("✅ Got ID token from Firebase");
-      console.log("🔍 Token length:", accessToken.length);
-      console.log("🔍 Token starts with:", accessToken.substring(0, 50) + "...");
-      
-      // Step 2.5: Debug the token (commented out until server is updated)
-      // console.log("🔍 Testing token with backend...");
-      // const tokenIsValid = await debugToken(accessToken);
-      // 
-      // if (!tokenIsValid) {
-      //   throw new Error('Token validation failed - check console for details');
-      // }
-      
-      // Step 3: Prepare backend payload
-      const backendPayload = {
-        email: form.email,
-        name: form.name,
-        soldierId: regNumber,
-        rank: form.rank,
-        role: form.role,
-      };
-      
-      console.log("📦 Backend payload:", backendPayload);
-      console.log("🔑 Authorization header:", `Bearer ${accessToken.substring(0, 20)}...`);
-      
-      // Step 4: Send registration data to backend
-      console.log("🚀 Sending registration to backend...");
-      const backendResponse = await axios.post(
-        "http://localhost:5001/auth/register",
-        backendPayload,
+      // Update soldier record
+      await setDoc(
+        doc(db, "soldiers", regNumber.trim()),
         {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        }
+          registered: true,
+          registeredAt: new Date().toISOString(),
+          email: form.email,
+          name: form.name,
+          rank: form.rank,
+          role: form.role
+        },
+        { merge: true }
       );
+      console.log("Soldier record updated");
 
-      console.log("✅ Registration successful:", backendResponse.data);
-      alert("Registration successful!");
+      alert("Registration successful! Please login.");
       navigate("/login");
       
     } catch (error) {
-      console.error("❌ Registration error:", error);
-      
-      // Better error handling with more specific messages
-      let errorMessage = "Registration failed";
-      
-      if (error.response) {
-        // Backend returned an error
-        console.log("❌ Backend error response:", error.response.data);
-        console.log("❌ Full error response:", error.response);
-        
-        // Show more detailed error information
-        const backendError = error.response.data;
-        console.log("❌ Backend error object:", JSON.stringify(backendError, null, 2));
-        
-        if (backendError.details) {
-          errorMessage = `${backendError.error}: ${backendError.details}`;
-        } else {
-          errorMessage = backendError.error || 
-                        backendError.message || 
-                        `Server error: ${error.response.status}`;
-        }
-        
-        // If it's a token-related error, provide more guidance
-        if (backendError.error?.includes('token') || 
-            backendError.details?.includes('token') ||
-            backendError.details?.includes('uid')) {
-          errorMessage += "\n\nThis appears to be a token issue. Check the browser console for more details.";
-        }
-        
-      } else if (error.request) {
-        // Network error
-        errorMessage = "Network error. Please check your connection.";
-      } else {
-        // Firebase or other error
-        errorMessage = error.message || "Registration failed";
-      }
-      
-      alert(errorMessage);
+      console.error("Registration failed:", error);
+      setRegNumberError(error.message);
     } finally {
       setLoading(false);
     }
@@ -162,14 +118,20 @@ const Register = () => {
             required
             disabled={loading}
           />
-          <input
+           <input
             type="text"
-            placeholder="Enter Regimental Number"
+            placeholder="Enter Regimental Number (e.g., 901234)"
             value={regNumber}
             onChange={(e) => setRegNumber(e.target.value)}
+            onBlur={() => validateRegNumber(regNumber)}
             required
             disabled={loading}
           />
+          {regNumberError && (
+            <div className="error-message" style={{ color: 'red', margin: '5px 0' }}>
+              {regNumberError}
+            </div>
+          )}
           <input
             type="email"
             placeholder="Your e-mail"

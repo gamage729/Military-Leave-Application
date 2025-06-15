@@ -1,11 +1,12 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
-import "./index.css"; // Yglobal styles
-import App from "./App";
-import reportWebVitals from "./reportWebVitals";
-import { AuthProvider } from "./context/AuthContext"; // Wrap App with AuthProvider
+// index.js
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { AuthProvider } from './context/AuthContext';
+import './index.css';
+import App from './App';
+import reportWebVitals from './reportWebVitals';
 
-const root = ReactDOM.createRoot(document.getElementById("root"));
+const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
     <AuthProvider>
@@ -14,5 +15,4 @@ root.render(
   </React.StrictMode>
 );
 
-// Optional: measure performance
 reportWebVitals();

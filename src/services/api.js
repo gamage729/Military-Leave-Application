@@ -1,84 +1,101 @@
-import axios from "axios";
-import { initializeApp } from "firebase/app";
-import { 
-  getAuth,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut
-} from "firebase/auth";
+// src/services/api.js
+import axios from 'axios';
+import { auth } from '../firebase-config';
 
-const API_URL = "http://localhost:5001";
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
-// Initialize Firebase (for client-side auth only)
-const firebaseConfig = {
-  apiKey: "AIzaSyBQZnKv0uOOba83dI0zmhmRvJs5LUfH5K0",
-  authDomain: "militaryleavesystem.firebaseapp.com",
-  projectId: "militaryleavesystem",
-  storageBucket: "militaryleavesystem.appspot.com",
-  messagingSenderId: "920276394215",
-  appId: "1:920276394215:web:791a00e2b4caa2478d4242"
-};
-  
-const firebaseApp = initializeApp(firebaseConfig);
-const auth = getAuth(firebaseApp);
-
-// ======================
-// Firebase Auth Services (Client-side only)
-// ======================
-export const firebaseRegister = async (email, password) => {
-  try {
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    return {
-      uid: userCredential.user.uid,
-      email: userCredential.user.email,
-      token: await userCredential.user.getIdToken()
-    };
-  } catch (error) {
-    throw new Error(error.message);
+// Axios instance
+const apiClient = axios.create({
+  baseURL: API_URL,
+  timeout: 10000,
+  headers: {
+    'Content-Type': 'application/json'
   }
-};
+});
 
-export const firebaseLogin = async (email, password) => {
-  try {
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    return {
-      uid: userCredential.user.uid,
-      email: userCredential.user.email,
-      token: await userCredential.user.getIdToken()
-    };
-  } catch (error) {
-    throw new Error(error.message);
-  }
-};
+// Request interceptor
+apiClient.interceptors.request.use(
+  async (config) => {
+    const token = await auth.currentUser?.getIdToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
-export const firebaseLogout = async () => {
-  try {
-    await signOut(auth);
-  } catch (error) {
-    throw new Error(error.message);
-  }
-};
-
-// ======================
-// Backend API Calls (Require token)
-// ======================
+// Auth endpoints
 export const registerWithBackend = (userData) => 
-  axios.post(`${API_URL}/auth/register`, userData);
+  apiClient.post('/auth/register', userData);
 
 export const loginWithBackend = (userData) => 
-  axios.post(`${API_URL}/auth/login`, userData);
+  apiClient.post('/auth/login', userData);
 
-export const submitLeave = (leaveData, token) =>
-  axios.post(`${API_URL}/leave/request`, leaveData, { 
-    headers: { Authorization: `Bearer ${token}` } 
-  });
+// Leave endpoints
+export const submitLeave = (leaveData) =>
+  apiClient.post('/leave/request', leaveData);
 
-export const getLeaveRequests = (token) =>
-  axios.get(`${API_URL}/leave/all`, { 
-    headers: { Authorization: `Bearer ${token}` } 
-  });
+export const getLeaveRequests = () =>
+  apiClient.get('/leave/all');
 
-export const overrideLeave = (id, decision, token) =>
-  axios.put(`${API_URL}/leave/override`, { id, admin_override: decision }, { 
-    headers: { Authorization: `Bearer ${token}` } 
-  });
+export const overrideLeave = (id, decision) =>
+  apiClient.put('/leave/override', { id, admin_override: decision });
+
+// Dashboard endpoints
+export const getDashboardOverview = (userId) =>
+  apiClient.get(`/api/dashboard/overview/${userId}`);
+
+export const getLeaveEntitlement = (userId) =>
+  apiClient.get(`/api/dashboard/entitlement/${userId}`);
+
+export const getPreviousLeaves = (userId, limit = 5) =>
+  apiClient.get(`/api/dashboard/previous-leaves/${userId}?limit=${limit}`);
+
+export const getAnnouncements = (userId) =>
+  apiClient.get(`/api/dashboard/announcements/${userId}`);
+
+// Combined Dashboard Data Fetch
+export const fetchAllDashboardData = async (userId) => {
+  try {
+    const [overview, entitlement, leaves, announcements] = await Promise.all([
+      getDashboardOverview(userId),
+      getLeaveEntitlement(userId),
+      getPreviousLeaves(userId),
+      getAnnouncements(userId)
+    ]);
+    
+    return {
+      overview: overview.data,
+      entitlement: entitlement.data,
+      previousLeaves: leaves.data,
+      announcements: announcements.data
+    };
+  } catch (error) {
+    console.error("Error fetching dashboard data:", error);
+    throw error;
+  }
+};
+
+// User endpoints
+export const getUserProfile = () =>
+  apiClient.get('/auth/me');
+
+export const updateUserProfile = (userData) =>
+  apiClient.put('/auth/me', userData);
+
+// Utility function for handling errors
+export const handleApiError = (error) => {
+  if (error.response) {
+    return {
+      error: error.response.data.message || "An error occurred",
+      status: error.response.status
+    };
+  } else if (error.request) {
+    return { error: "No response received from server" };
+  } else {
+    return { error: error.message };
+  }
+};
+
+export default apiClient;
