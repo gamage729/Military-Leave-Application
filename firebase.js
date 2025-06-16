@@ -10,31 +10,32 @@ if (!admin.apps.length) {
     databaseURL: `https://${serviceAccount.project_id}.firebaseio.com`
   });
 
-  // Enable Firestore debugging
-  admin.firestore().settings({
-    ignoreUndefinedProperties: true
-  });
-  
   console.log('Firebase Admin initialized successfully');
 }
 
-// Test connections
+// Initialize Firestore with settings
+const db = admin.firestore();
+db.settings({ ignoreUndefinedProperties: true });
+
+// Test connections (optional, but helpful)
 async function testConnections() {
   try {
     await admin.auth().listUsers(1);
     console.log('✅ Firebase Auth connected');
     
-    await admin.firestore().collection('test').doc('test').get();
+    await db.collection('test').doc('test').get();
     console.log('✅ Firestore connected');
   } catch (error) {
     console.error('Connection test failed:', error);
   }
 }
 
+// Run tests (non-blocking)
 testConnections();
 
+// Export initialized instances
 module.exports = {
-  db: admin.firestore(),
+  db,  // Firestore instance
   auth: admin.auth(),
-  admin: admin
+  admin
 };

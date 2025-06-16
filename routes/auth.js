@@ -97,101 +97,158 @@ router.get("/debug", (req, res) => {
   });
 });
 
-// POST: Register new user
-router.post('/register', async (req, res) => {
+// POST: Register new user - FIXED: Changed from app.post to router.post
+router.post('/register', verifyToken, async (req, res) => {
   try {
-    const { soldierId, email, password, name, rank } = req.body;
-
-    // Validate input
-    if (!soldierId || !email || !password || !name || !rank) {
-      return res.status(400).json({
-        success: false,
-        error: 'All fields are required'
+    const { 
+      uid, 
+      regNumber, 
+      soldierId, // Also accept soldierId as alias for regNumber
+      email, 
+      name,
+      firstName, 
+      lastName, 
+      rank, 
+      role,
+      unit, 
+      phoneNumber, 
+      dateOfBirth,
+      ...otherData // Include any other data from the frontend
+    } = req.body;
+    
+    // Use regNumber or soldierId (they should be the same)
+    const soldierNumber = regNumber || soldierId;
+    
+    // Validate required fields
+    if (!uid || !soldierNumber || !email || !name) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Missing required fields: uid, regNumber/soldierId, email, name' 
       });
     }
 
-    // Check if soldier exists and isn't registered
-    const soldierRef = db.collection('soldiers').doc(soldierId);
+    console.log('Processing registration for soldier:', soldierNumber, 'UID:', uid);
+
+    // Check if user already exists in users collection
+    const existingUser = await db.collection('users').doc(uid).get();
+    if (existingUser.exists) {
+      return res.status(409).json({ 
+        success: false, 
+        error: 'User already exists' 
+      });
+    }
+
+    // Get the existing soldier data from soldiers collection
+    const soldierRef = db.collection('soldiers').doc(soldierNumber);
     const soldierDoc = await soldierRef.get();
     
     if (!soldierDoc.exists) {
       return res.status(404).json({
         success: false,
-        error: 'Soldier not found'
+        error: 'Soldier record not found in system'
       });
     }
 
-    if (soldierDoc.data().registered) {
-      return res.status(400).json({
+    const existingSoldierData = soldierDoc.data();
+    
+    // Check if soldier is already registered
+    if (existingSoldierData.registered) {
+      return res.status(409).json({
         success: false,
-        error: 'Soldier already registered'
+        error: 'This soldier ID is already registered'
       });
     }
 
-    // 1. First create the Firebase auth user
-    const userRecord = await admin.auth().createUser({
-      email,
-      password,
-      displayName: name
-    });
-
-    // 2. Create the user document
+    // Prepare user data for users collection
     const userData = {
-      uid: userRecord.uid,
-      soldierId,
-      name,
+      uid,
+      regNumber: soldierNumber,
+      soldierId: soldierNumber, // Keep both for compatibility
       email,
-      rank,
-      role: 'user',
+      name,
+      firstName: firstName || name.split(' ')[0] || name,
+      lastName: lastName || name.split(' ').slice(1).join(' ') || '',
+      rank: rank || existingSoldierData.rank || 'Private',
+      role: role || 'soldier',
+      unit: unit || existingSoldierData.unit || '',
+      phoneNumber: phoneNumber || existingSoldierData.phoneNumber || '',
+      dateOfBirth: dateOfBirth || existingSoldierData.dateOfBirth || '',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      isActive: true,
+      // Include any existing soldier data
+      ...existingSoldierData,
+      // Initialize leave entitlements
       leaveEntitlements: {
-        'Annual Leave': 30,
-        'Sick Leave': 15,
-        'Casual Leave': 10
+        annual: { total: 30, used: 0, remaining: 30 },
+        sick: { total: 14, used: 0, remaining: 14 },
+        compassionate: { total: 7, used: 0, remaining: 7 }
       }
     };
 
-    await db.collection('users').doc(userRecord.uid).set(userData);
-
-    // 3. Then mark soldier as registered
-    await soldierRef.update({
+    // Prepare updated soldier data
+    const updatedSoldierData = {
+      ...existingSoldierData,
+      uid,
+      email,
+      name,
+      firstName: firstName || name.split(' ')[0] || name,
+      lastName: lastName || name.split(' ').slice(1).join(' ') || '',
+      rank: rank || existingSoldierData.rank || 'Private',
+      role: role || 'soldier',
+      unit: unit || existingSoldierData.unit || '',
+      phoneNumber: phoneNumber || existingSoldierData.phoneNumber || '',
+      dateOfBirth: dateOfBirth || existingSoldierData.dateOfBirth || '',
       registered: true,
-      registeredAt: admin.firestore.FieldValue.serverTimestamp(),
-      registeredBy: userRecord.uid
-    });
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      isActive: true
+    };
 
-    // 4. Initialize dashboard data
-    await initializeDashboardData(userRecord.uid, soldierId);
+    // Use a batch write to ensure both operations succeed or fail together
+    const batch = db.batch();
 
-    return res.status(201).json({
-      success: true,
-      message: 'Registration successful',
+    // Create user document
+    const userRef = db.collection('users').doc(uid);
+    batch.set(userRef, userData);
+
+    // Update soldier document to mark as registered
+    batch.update(soldierRef, updatedSoldierData);
+
+    // Commit the batch
+    await batch.commit();
+
+    console.log('Registration successful for soldier:', soldierNumber, 'UID:', uid);
+    
+    res.status(201).json({ 
+      success: true, 
+      message: 'User registered successfully',
       user: {
-        ...userData,
-        password: undefined // Don't return password
+        uid,
+        regNumber: soldierNumber,
+        email,
+        name,
+        rank: userData.rank,
+        role: userData.role,
+        unit: userData.unit
       }
     });
+    
   } catch (error) {
     console.error('Registration error:', error);
     
-    // Clean up if user was created but something else failed
-    if (error.code === 'auth/email-already-exists') {
-      try {
-        const user = await admin.auth().getUserByEmail(req.body.email);
-        await admin.auth().deleteUser(user.uid);
-      } catch (cleanupError) {
-        console.error('Cleanup failed:', cleanupError);
-      }
-      
-      return res.status(400).json({
-        success: false,
-        error: 'Email already registered'
-      });
+    // Provide more specific error messages
+    let errorMessage = 'Internal server error during registration';
+    if (error.code === 'permission-denied') {
+      errorMessage = 'Permission denied - check Firestore security rules';
+    } else if (error.code === 'not-found') {
+      errorMessage = 'Soldier record not found';
+    } else if (error.message) {
+      errorMessage = error.message;
     }
-
-    return res.status(500).json({
-      success: false,
-      error: 'Registration failed',
+    
+    res.status(500).json({ 
+      success: false, 
+      error: errorMessage,
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -350,35 +407,32 @@ router.post("/logout", verifyToken, (req, res) => {
   });
 });
 
-// GET: Current logged-in user
-router.get("/me", verifyToken, async (req, res) => {
+// GET: Get current user info - FIXED: Changed from app.get to router.get
+// Update your /auth/me endpoint
+router.get('/me', verifyToken, async (req, res) => {
   try {
-    const userSnap = await db.collection("users").doc(req.user.uid).get();
-    if (!userSnap.exists) {
+    const userDoc = await db.collection('users').doc(req.user.uid).get();
+    
+    if (!userDoc.exists) {
       return res.status(404).json({ 
         success: false,
-        error: "User not found" 
+        exists: false,
+        error: 'User profile not found',
+        message: 'Please complete registration'
       });
     }
-    
-    const userData = userSnap.data();
+
     return res.json({
       success: true,
-      user: {
-        uid: req.user.uid,
-        name: userData.name,
-        email: userData.email,
-        rank: userData.rank,
-        role: userData.role,
-        soldierId: userData.soldierId,
-      }
+      exists: true,
+      user: userDoc.data()
     });
-  } catch (err) {
-    console.error("Me error:", err);
-    return res.status(500).json({ 
+    
+  } catch (error) {
+    console.error('Error in /auth/me:', error);
+    return res.status(500).json({
       success: false,
-      error: "Failed to fetch current user",
-      details: err.message 
+      error: 'Internal server error'
     });
   }
 });

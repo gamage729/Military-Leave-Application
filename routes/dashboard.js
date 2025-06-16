@@ -5,6 +5,11 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const { param, query, body } = require('express-validator');
 
+
+
+const multer = require('multer');
+const upload = multer({ dest: 'uploads/' }); 
+
 // Rate limiting middleware
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -29,24 +34,12 @@ router.use((req, res, next) => {
   next();
 });
 
-// Utility function for date validation
-const validateDateRange = (startDate, endDate) => {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
 
-  if (isNaN(start) || isNaN(end)) {
-    return { valid: false, error: 'Invalid date format' };
-  }
-  if (start < today) {
-    return { valid: false, error: 'Start date cannot be in the past' };
-  }
-  if (end < start) {
-    return { valid: false, error: 'End date cannot be before start date' };
-  }
-  return { valid: true };
-};
+
+
+
+
+
 
 // Helper functions for data fetching
 const getOverviewData = async (userId) => {
@@ -149,34 +142,55 @@ const getEntitlementData = async (userId) => {
 };
 
 const getPreviousLeaves = async (userId, limit = 10) => {
-  const snapshot = await db.collection('leaveRequests')
-    .where('userId', '==', userId)
-    .orderBy('createdAt', 'desc')
-    .limit(limit)
-    .get();
+  try {
+    console.log(`Fetching leaves for user: ${userId}`); // Debug log
+    
+    const snapshot = await db.collection('leaveRequests')
+      .where('userId', '==', userId)
+      .orderBy('createdAt', 'desc')
+      .limit(limit)
+      .get();
 
-  return snapshot.docs.map(doc => {
-    const data = doc.data();
-    const start = new Date(data.startDate);
-    const end = new Date(data.endDate);
-    const days = isNaN(start) || isNaN(end) ? 0 : 
-      Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
+    console.log(`Found ${snapshot.size} leave requests`); // Debug log
 
-    return {
-      id: doc.id,
-      type: data.leaveType,
-      start: data.startDate,
-      end: data.endDate,
-      days,
-      status: data.status,
-      reason: data.reason,
-      createdAt: data.createdAt,
-      approvedBy: data.approvedBy,
-      rejectionReason: data.rejectionReason
-    };
-  });
+    if (snapshot.empty) {
+      console.log('No leave requests found for user:', userId);
+      return [];
+    }
+
+    const leaves = snapshot.docs.map(doc => {
+      const data = doc.data();
+      console.log(`Document ${doc.id} data:`, data); // Debug log
+
+      // Convert Firestore dates to JavaScript dates or strings
+      const convertDateField = (field) => {
+        if (!data[field]) return null;
+        if (data[field] && typeof data[field] === 'object' && 'toDate' in data[field]) {
+          return data[field].toDate();
+        }
+        return data[field];
+      };
+
+      return {
+        id: doc.id,
+        leaveType: data.leaveType || data.type || 'Unknown',
+        startDate: convertDateField('startDate'),
+        endDate: convertDateField('endDate'),
+        leaveDays: data.leaveDays || null,
+        status: data.status || 'pending',
+        rejectionReason: data.rejectionReason || null,
+        createdAt: convertDateField('createdAt'),
+        updatedAt: convertDateField('updatedAt')
+      };
+    });
+
+    console.log('Processed leaves:', leaves); // Debug log
+    return leaves;
+  } catch (error) {
+    console.error('Error in getPreviousLeaves:', error);
+    throw error;
+  }
 };
-
 const getAnnouncements = async () => {
   const snapshot = await db.collection('announcements')
     .where('isActive', '==', true)
@@ -347,6 +361,8 @@ router.get(
       const { userId } = req.params;
       const { page = 1, limit = 10 } = req.query;
 
+      console.log(`[DEBUG] Fetching leaves for user ${userId}`); // Debug log
+
       if (userId !== req.user.uid) {
         return res.status(403).json({
           success: false,
@@ -355,6 +371,8 @@ router.get(
       }
 
       const data = await getPreviousLeaves(userId, limit);
+      
+      console.log('[DEBUG] Retrieved leaves data:', JSON.stringify(data, null, 2)); // Debug log
 
       return res.json({
         success: true,
@@ -401,66 +419,139 @@ router.get('/announcements', async (req, res) => {
 /**
  * @api {post} /dashboard/apply Submit Leave Request
  */
-router.post(
-  '/apply',
-  [
-    body('leaveType').isString().notEmpty(),
-    body('startDate').isISO8601().toDate(),
-    body('endDate').isISO8601().toDate(),
-    body('reason').isString().notEmpty()
-  ],
-  async (req, res) => {
-    try {
-      const { leaveType, startDate, endDate, reason } = req.body;
-      const userId = req.user.uid;
+router.post('/apply', upload.array('attachments'), async (req, res) => {
+  try {
+    console.log('=== BACKEND DEBUG ===');
+    console.log('Request body:', req.body);
+    console.log('Request files:', req.files);
 
-      const dateValidation = validateDateRange(startDate, endDate);
-      if (!dateValidation.valid) {
-        return res.status(400).json({
-          success: false,
-          error: dateValidation.error
-        });
-      }
+    const userId = req.user.uid;
+    const { leaveType, startDate, endDate, reason } = req.body;
 
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      const leaveDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
-
-      const leaveRequest = {
-        userId,
-        leaveType,
-        startDate,
-        endDate,
-        reason,
-        leaveDays,
-        status: 'pending',
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp() 
-      };
-
-      const docRef = await db.collection('leaveRequests').add(leaveRequest);
-
-      return res.status(201).json({
-        success: true,
-        message: 'Leave request submitted successfully',
-        data: {
-          id: docRef.id,
-          ...leaveRequest,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
+    // Validate required fields
+    if (!leaveType || !startDate || !endDate || !reason) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+        details: {
+          leaveType: !leaveType ? 'Required' : 'OK',
+          startDate: !startDate ? 'Required' : 'OK',
+          endDate: !endDate ? 'Required' : 'OK',
+          reason: !reason ? 'Required' : 'OK'
         }
       });
+    }
 
+    // Enhanced date validation
+    const validateAndFormatDate = (dateString, fieldName) => {
+      // Check if it's already in YYYY-MM-DD format
+      const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (isoDateRegex.test(dateString)) {
+        return dateString;
+      }
+
+      // Try to parse and format the date
+      try {
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) {
+          throw new Error(`Invalid ${fieldName}: ${dateString}`);
+        }
+        
+        // Format to YYYY-MM-DD
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        
+        return `${year}-${month}-${day}`;
+      } catch (error) {
+        throw new Error(`Invalid ${fieldName} format: ${dateString}`);
+      }
+    };
+
+    let formattedStartDate, formattedEndDate;
+    
+    try {
+      formattedStartDate = validateAndFormatDate(startDate, 'start date');
+      formattedEndDate = validateAndFormatDate(endDate, 'end date');
     } catch (error) {
-      console.error('Error submitting leave request:', error);
-      return res.status(500).json({
+      return res.status(400).json({
         success: false,
-        error: 'Failed to submit leave request',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        error: error.message
       });
     }
+
+    // Validate date range
+    const today = new Date();
+    const todayString = today.getFullYear() + '-' + 
+      String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+      String(today.getDate()).padStart(2, '0');
+
+    if (formattedStartDate < todayString) {
+      return res.status(400).json({
+        success: false,
+        error: 'Start date cannot be in the past'
+      });
+    }
+
+    if (formattedEndDate < formattedStartDate) {
+      return res.status(400).json({
+        success: false,
+        error: 'End date cannot be before start date'
+      });
+    }
+
+    // Calculate leave days
+    const start = new Date(formattedStartDate + 'T12:00:00');
+    const end = new Date(formattedEndDate + 'T12:00:00');
+    const leaveDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
+
+    const leaveRequest = {
+      userId,
+      leaveType,
+      startDate: formattedStartDate, // Store in consistent format
+      endDate: formattedEndDate,     // Store in consistent format
+      reason,
+      leaveDays,
+      status: 'pending',
+      attachments: req.files ? req.files.map(file => ({
+        filename: file.filename,
+        originalName: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size
+      })) : [],
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    console.log('Creating leave request:', leaveRequest);
+
+    const docRef = await db.collection('leaveRequests').add(leaveRequest);
+
+    // Return the created request with formatted data
+    const responseData = {
+      id: docRef.id,
+      ...leaveRequest,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      formattedStartDate: start.toLocaleDateString(),
+      formattedEndDate: end.toLocaleDateString()
+    };
+
+    return res.status(201).json({
+      success: true,
+      message: 'Leave request submitted successfully',
+      data: responseData
+    });
+
+  } catch (error) {
+    console.error('Error submitting leave request:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to submit leave request',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
-);
+});
 
 /**
  * @api {get} /dashboard/health Health Check
