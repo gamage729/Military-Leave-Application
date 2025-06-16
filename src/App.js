@@ -34,17 +34,7 @@ function App() {
         
         <Route 
           path="/register" 
-          element={
-            isAuthenticated ? (
-              isFullyRegistered ? (
-                <Navigate to="/dashboard" replace />
-              ) : (
-                <Register />
-              )
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          } 
+          element={<Register />}  // No conditions - always show register page
         />
         
         <Route path="/dashboard" element={<Dashboard />} />
