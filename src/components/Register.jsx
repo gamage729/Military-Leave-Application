@@ -1,9 +1,10 @@
+// Register.jsx
 import React, { useState } from "react";
-import { firebaseRegister } from "../services/firebase-auth";
 import { useNavigate } from "react-router-dom";
 import "../styles/RegisterStyles.css";
 import { db } from "../firebase-config";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
+import { useAuth } from "../context/AuthContext";
 
 const Register = () => {
   const [form, setForm] = useState({
@@ -12,26 +13,67 @@ const Register = () => {
     password: "",
     rank: "Private",
     role: "soldier",
+    firstName: "",
+    lastName: "",
+    unit: "",
+    phoneNumber: "",
+    dateOfBirth: "",
   });
   const [regNumber, setRegNumber] = useState("");
   const [loading, setLoading] = useState(false);
   const [regNumberError, setRegNumberError] = useState("");
+  const [error, setError] = useState("");
   const navigate = useNavigate();
+  const { register } = useAuth();
+
+  const validateForm = () => {
+    setError("");
+    
+    if (!form.name.trim()) {
+      setError("Please enter your name");
+      return false;
+    }
+    
+    if (!form.email.trim()) {
+      setError("Please enter your email");
+      return false;
+    }
+    
+    if (!form.password.trim()) {
+      setError("Please enter a password");
+      return false;
+    }
+    
+    if (!regNumber.trim()) {
+      setError("Please enter your regimental number");
+      return false;
+    }
+    
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(form.email)) {
+      setError("Please enter a valid email address");
+      return false;
+    }
+    
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+    if (!passwordRegex.test(form.password)) {
+      setError("Password must be at least 8 characters with uppercase, lowercase, number, and special character");
+      return false;
+    }
+    
+    return true;
+  };
 
   const validateRegNumber = async (number) => {
     setRegNumberError("");
-    if (!number || !number.trim()) {
+    if (!number?.trim()) {
       setRegNumberError("Please enter a regimental number");
       return false;
     }
 
     try {
-      console.log("Validating reg number:", number);
       const docRef = doc(db, "soldiers", number.trim());
-      console.log("Document reference created");
-      
       const docSnap = await getDoc(docRef);
-      console.log("Document snapshot received:", docSnap.exists());
       
       if (!docSnap.exists()) {
         setRegNumberError("Soldier ID not found in system");
@@ -39,7 +81,6 @@ const Register = () => {
       }
       
       const soldierData = docSnap.data();
-      console.log("Soldier data:", soldierData);
       
       if (soldierData.registered) {
         setRegNumberError("This soldier ID is already registered");
@@ -48,7 +89,7 @@ const Register = () => {
       
       return true;
     } catch (error) {
-      console.error("Validation error details:", error);
+      console.error("Validation error:", error);
       setRegNumberError("System error validating ID. Please try again.");
       return false;
     }
@@ -56,48 +97,57 @@ const Register = () => {
 
   const handleRegister = async (e) => {
     e.preventDefault();
+    
+    if (!validateForm() || !await validateRegNumber(regNumber)) {
+      return;
+    }
+
     setLoading(true);
-    setRegNumberError("");
+    setError('');
 
     try {
-      console.log("Starting registration for:", regNumber);
-      
-      // Validate regimental number
-      if (!await validateRegNumber(regNumber)) {
-        throw new Error(regNumberError);
+      // Get soldier data
+      const soldierDoc = await getDoc(doc(db, 'soldiers', regNumber));
+      if (!soldierDoc.exists()) {
+        throw new Error('Soldier record not found');
       }
 
-      // Register with Firebase Auth
-      const firebaseResponse = await firebaseRegister({
-        email: form.email,
-        password: form.password,
+      const existingData = soldierDoc.data();
+      const userData = {
         name: form.name,
+        firstName: form.firstName || form.name.split(' ')[0] || form.name,
+        lastName: form.lastName || form.name.split(' ').slice(1).join(' ') || '',
         rank: form.rank,
+        unit: form.unit || existingData.unit || '',
+        phoneNumber: form.phoneNumber || existingData.phoneNumber || '',
+        dateOfBirth: form.dateOfBirth || existingData.dateOfBirth || '',
         role: form.role,
+        regNumber,
+        soldierId: regNumber,
+        ...existingData
+      };
+
+      // Use AuthContext register function
+      await register(form.email, form.password, userData);
+      
+      // Redirect after successful registration
+      navigate('/dashboard', { 
+        state: { message: 'Registration successful!' }
       });
-      console.log("Firebase registration successful");
-
-      // Update soldier record
-      await setDoc(
-        doc(db, "soldiers", regNumber.trim()),
-        {
-          registered: true,
-          registeredAt: new Date().toISOString(),
-          email: form.email,
-          name: form.name,
-          rank: form.rank,
-          role: form.role
-        },
-        { merge: true }
-      );
-      console.log("Soldier record updated");
-
-      alert("Registration successful! Please login.");
-      navigate("/login");
       
     } catch (error) {
-      console.error("Registration failed:", error);
-      setRegNumberError(error.message);
+      console.error('Registration error:', error);
+      let errorMessage = 'Registration failed. Please try again.';
+      
+      if (error.code === 'auth/email-already-in-use') {
+        errorMessage = 'Email is already registered.';
+      } else if (error.code === 'auth/weak-password') {
+        errorMessage = 'Password should be at least 6 characters.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -109,29 +159,33 @@ const Register = () => {
       <div className="register-form">
         <h2>Create Your Account</h2>
         <p>Serving Our Country</p>
+        
+        {error && (
+          <div className="error-message">
+            {error}
+          </div>
+        )}
+        
         <form onSubmit={handleRegister}>
           <input
             type="text"
-            placeholder="Your name"
+            placeholder="Your full name"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             required
             disabled={loading}
           />
-           <input
+          <input
             type="text"
             placeholder="Enter Regimental Number (e.g., 901234)"
             value={regNumber}
             onChange={(e) => setRegNumber(e.target.value)}
-            onBlur={() => validateRegNumber(regNumber)}
+            onBlur={() => regNumber && validateRegNumber(regNumber)}
             required
             disabled={loading}
           />
-          {regNumberError && (
-            <div className="error-message" style={{ color: 'red', margin: '5px 0' }}>
-              {regNumberError}
-            </div>
-          )}
+          {regNumberError && <div className="error-message">{regNumberError}</div>}
+          
           <input
             type="email"
             placeholder="Your e-mail"
@@ -148,13 +202,11 @@ const Register = () => {
             required
             disabled={loading}
             pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$"
-            title="Password must be at least 8 characters long, include 1 uppercase letter, 1 lowercase letter, 1 number, and 1 special character."
+            title="Password must be at least 8 characters with uppercase, lowercase, number, and special character"
           />
 
           <div className="dropdown-container">
-            <label htmlFor="rank" className="dropdown-label">
-              Select Your Rank
-            </label>
+            <label htmlFor="rank">Select Your Rank</label>
             <select
               id="rank"
               value={form.rank}
@@ -169,9 +221,7 @@ const Register = () => {
               <option value="Major">Major</option>
             </select>
 
-            <label htmlFor="role" className="dropdown-label">
-              Select Your Role
-            </label>
+            <label htmlFor="role">Select Your Role</label>
             <select
               id="role"
               value={form.role}
@@ -184,7 +234,7 @@ const Register = () => {
             </select>
           </div>
 
-          <button type="submit" className="create-account" disabled={loading}>
+          <button type="submit" disabled={loading || regNumberError}>
             {loading ? "Creating Account..." : "Create account"}
           </button>
         </form>

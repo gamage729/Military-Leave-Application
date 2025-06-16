@@ -1,68 +1,83 @@
-// src/services/api.js
 import axios from 'axios';
 import { auth } from '../firebase-config';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
-// Axios instance
+// Update the axios instance configuration
 const apiClient = axios.create({
   baseURL: API_URL,
   timeout: 10000,
+  withCredentials: true, // Important for CORS with credentials
   headers: {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
   }
 });
 
-// Request interceptor
+// Update the request interceptor
 apiClient.interceptors.request.use(
   async (config) => {
-    const token = await auth.currentUser?.getIdToken();
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    const user = auth.currentUser;
+    if (user) {
+      try {
+        const token = await user.getIdToken(true); // Force refresh
+        config.headers.Authorization = `Bearer ${token}`;
+      } catch (error) {
+        console.error('Token refresh failed:', error);
+        throw error;
+      }
     }
     return config;
   },
   (error) => Promise.reject(error)
 );
+// Response interceptor
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+    
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+      
+      try {
+        await auth.currentUser?.getIdToken(true);
+        return apiClient(originalRequest);
+      } catch (refreshError) {
+        console.error('Token refresh failed:', refreshError);
+        return Promise.reject(refreshError);
+      }
+    }
+    
+    return Promise.reject(error);
+  }
+);
 
 // Auth endpoints
-export const registerWithBackend = (userData) => 
-  apiClient.post('/auth/register', userData);
-
-export const loginWithBackend = (userData) => 
-  apiClient.post('/auth/login', userData);
+export const registerWithBackend = (userData) => apiClient.post('/auth/register', userData);
+export const loginWithBackend = (userData) => apiClient.post('/auth/login', userData);
+export const getUserProfile = () => apiClient.get('/auth/me');
+export const updateUserProfile = (userData) => apiClient.put('/auth/me', userData);
 
 // Leave endpoints
-export const submitLeave = (leaveData) =>
-  apiClient.post('/leave/request', leaveData);
-
-export const getLeaveRequests = () =>
-  apiClient.get('/leave/all');
-
-export const overrideLeave = (id, decision) =>
-  apiClient.put('/leave/override', { id, admin_override: decision });
+export const submitLeave = (leaveData) => apiClient.post('/leave/request', leaveData);
+export const getLeaveRequests = () => apiClient.get('/leave/all');
+export const overrideLeave = (id, decision) => apiClient.put('/leave/override', { id, admin_override: decision });
 
 // Dashboard endpoints
-export const getDashboardOverview = (userId) =>
-  apiClient.get(`/api/dashboard/overview/${userId}`);
+export const getDashboardOverview = (userId) => apiClient.get(`/dashboard/overview/${userId}`);
+export const getLeaveEntitlement = (userId) => apiClient.get(`/dashboard/entitlement/${userId}`);
+export const getPreviousLeaves = (userId, limit = 5) => apiClient.get(`/dashboard/previous-leaves/${userId}?limit=${limit}`);
+export const getAnnouncements = () => apiClient.get('/dashboard/announcements');
 
-export const getLeaveEntitlement = (userId) =>
-  apiClient.get(`/api/dashboard/entitlement/${userId}`);
-
-export const getPreviousLeaves = (userId, limit = 5) =>
-  apiClient.get(`/api/dashboard/previous-leaves/${userId}?limit=${limit}`);
-
-export const getAnnouncements = (userId) =>
-  apiClient.get(`/api/dashboard/announcements/${userId}`);
-
-// Combined Dashboard Data Fetch
+// Combined data fetch
 export const fetchAllDashboardData = async (userId) => {
   try {
     const [overview, entitlement, leaves, announcements] = await Promise.all([
       getDashboardOverview(userId),
       getLeaveEntitlement(userId),
       getPreviousLeaves(userId),
-      getAnnouncements(userId)
+      getAnnouncements()
     ]);
     
     return {
@@ -77,22 +92,15 @@ export const fetchAllDashboardData = async (userId) => {
   }
 };
 
-// User endpoints
-export const getUserProfile = () =>
-  apiClient.get('/auth/me');
-
-export const updateUserProfile = (userData) =>
-  apiClient.put('/auth/me', userData);
-
-// Utility function for handling errors
+// Error handler
 export const handleApiError = (error) => {
   if (error.response) {
     return {
-      error: error.response.data.message || "An error occurred",
+      error: error.response.data.message || "Request failed",
       status: error.response.status
     };
   } else if (error.request) {
-    return { error: "No response received from server" };
+    return { error: "No response received" };
   } else {
     return { error: error.message };
   }

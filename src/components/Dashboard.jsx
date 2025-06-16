@@ -8,6 +8,7 @@ import Sidebar from "./Sidebar";
 import FloatingChatBot from "./FloatingChatBot";
 import "../styles/DashboardStyles.css";
 import { useAuth } from "../context/AuthContext";
+import { auth } from "../firebase-config";
 
 // Access icons
 const {
@@ -36,6 +37,65 @@ const {
   faFile,
   faSpinner
 } = solidIcons;
+
+
+const UserProfile = ({ user, logout }) => {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const navigate = useNavigate();
+
+  const toggleMenu = () => setIsMenuOpen(!isMenuOpen);
+  const goToSettings = () => {
+    navigate('/settings');
+    setIsMenuOpen(false);
+  };
+
+  const handleLogout = () => {
+    logout();
+    setIsMenuOpen(false);
+  };
+
+  // Handle case where user data might be null or incomplete
+  const firstName = user?.name?.split(' ')[0] || user?.displayName?.split(' ')[0] || 'User';
+  const displayName = user?.rank ? `${user.rank} ${firstName}` : firstName;
+
+  return (
+    <div className="user-profile-container">
+      <div className="user-profile" onClick={toggleMenu}>
+        <div className="user-avatar">
+          <FontAwesomeIcon icon={faUser} />
+        </div>
+        <span className="user-name">{displayName}</span>
+        <FontAwesomeIcon icon={faCaretDown} className="dropdown-icon" />
+      </div>
+      
+      {isMenuOpen && (
+        <div className="user-dropdown-menu">
+          <div className="user-menu-header">
+            <div className="user-menu-avatar">
+              <FontAwesomeIcon icon={faUser} />
+            </div>
+            <div className="user-menu-details">
+              <div className="user-menu-name">{user?.name || user?.displayName || 'User'}</div>
+              <div className="user-menu-rank">{user?.rank || 'Rank'}</div>
+              <div className="user-menu-email">{user?.email || ''}</div>
+            </div>
+          </div>
+          <div className="user-menu-divider"></div>
+          <ul className="user-menu-options">
+            <li onClick={goToSettings}>
+              <FontAwesomeIcon icon={faCog} />
+              <span>Settings</span>
+            </li>
+            <li onClick={handleLogout}>
+              <FontAwesomeIcon icon={solidIcons.faSignOutAlt} />
+              <span>Logout</span>
+            </li>
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+};
 
 
 const CircularChart = ({ approved = 0, pending = 0, rejected = 0, total = 0 }) => {
@@ -294,66 +354,12 @@ const Announcements = ({ announcements, loading }) => {
   );
 };
 
-const UserProfile = ({ user, logout }) => {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const navigate = useNavigate();
 
-  const toggleMenu = () => setIsMenuOpen(!isMenuOpen);
-  const goToSettings = () => {
-    navigate('/settings');
-    setIsMenuOpen(false);
-  };
-
-  const handleLogout = () => {
-    logout();
-    setIsMenuOpen(false);
-  };
-
-  const firstName = user?.name?.split(' ')[0] || 'User';
-  const displayName = user?.rank ? `${user.rank} ${firstName}` : firstName;
-
-  return (
-    <div className="user-profile-container">
-      <div className="user-profile" onClick={toggleMenu}>
-        <div className="user-avatar">
-          <FontAwesomeIcon icon={faUser} />
-        </div>
-        <span className="user-name">{displayName}</span>
-        <FontAwesomeIcon icon={faCaretDown} className="dropdown-icon" />
-      </div>
-      
-      {isMenuOpen && (
-        <div className="user-dropdown-menu">
-          <div className="user-menu-header">
-            <div className="user-menu-avatar">
-              <FontAwesomeIcon icon={faUser} />
-            </div>
-            <div className="user-menu-details">
-              <div className="user-menu-name">{user?.name || 'User'}</div>
-              <div className="user-menu-rank">{user?.rank || 'Rank'}</div>
-              <div className="user-menu-email">{user?.email || ''}</div>
-            </div>
-          </div>
-          <div className="user-menu-divider"></div>
-          <ul className="user-menu-options">
-            <li onClick={goToSettings}>
-              <FontAwesomeIcon icon={faCog} />
-              <span>Settings</span>
-            </li>
-            <li onClick={handleLogout}>
-              <FontAwesomeIcon icon={solidIcons.faSignOutAlt} />
-              <span>Logout</span>
-            </li>
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-};
 
 
 const Dashboard = () => {
   const { user: authUser, logout } = useAuth();
+  const [userProfile, setUserProfile] = useState(null); // Add user profile state
   const [overviewData, setOverviewData] = useState({
     total: 0,
     approved: 0,
@@ -376,7 +382,8 @@ const Dashboard = () => {
     overview: true,
     entitlement: true,
     previousLeaves: true,
-    announcements: true
+    announcements: true,
+    userProfile: true // Add user profile loading state
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState({});
@@ -394,137 +401,19 @@ const Dashboard = () => {
   
   const apiClient = axios.create({
     baseURL: API_BASE_URL,
-    timeout: 20000, // Increased timeout for batch requests
+    timeout: 20000,
     headers: {
       'Content-Type': 'application/json',
       'Accept': 'application/json'
     }
   });
-
-  const fetchData = async () => {
-    if (!authUser?.uid) {
-      console.log('No auth user - skipping fetch');
-      return;
-    }
-
-    // Prevent duplicate calls within 1 second
-    const now = Date.now();
-    if (fetchInProgress.current || (now - lastFetchTime.current < 1000)) {
-      console.log('Fetch already in progress or too recent, skipping...');
-      return;
-    }
-
-    fetchInProgress.current = true;
-    lastFetchTime.current = now;
-
-    // Cancel previous request if exists
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
-    // Create new abort controller
-    abortControllerRef.current = new AbortController();
-
-    try {
-      console.log('Starting batch data fetch for user:', authUser.uid);
-      
-      // Get fresh token
-      const token = await authUser.getIdToken(true);
-      console.log('Token refreshed successfully');
-      
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      };
-
-      // Set loading states
-      setDataLoading({
-        overview: true,
-        entitlement: true,
-        previousLeaves: true,
-        announcements: true
-      });
-
-      // Clear previous errors
-      setError({});
-
-      console.log('Making batch request to:', `/dashboard/batch/${authUser.uid}`);
-
-      // Single batch request
-      const response = await apiClient.get(`/dashboard/batch/${authUser.uid}`, {
-        headers,
-        signal: abortControllerRef.current.signal
-      });
-
-      console.log('Batch request completed successfully');
-
-      const { data, errors } = response.data;
-
-      // Set data from batch response
-      if (data.overview) {
-        setOverviewData(data.overview);
-      }
-      if (data.entitlement) {
-        setEntitlementData(data.entitlement);
-      }
-      if (data.previousLeaves) {
-        setPreviousLeaves(Array.isArray(data.previousLeaves) ? data.previousLeaves : []);
-      }
-      if (data.announcements) {
-        setAnnouncementsData(Array.isArray(data.announcements) ? data.announcements : []);
-      }
-
-      // Handle any errors from batch response
-      if (errors) {
-        const hasErrors = Object.values(errors).some(error => error !== null);
-        if (hasErrors) {
-          console.warn('Some data failed to load:', errors);
-          setError(errors);
-        }
-      }
-
-      console.log('Batch data fetch completed successfully');
-
-    } catch (error) {
-      console.error('Batch fetch error:', error);
-      
-      if (error.name === 'AbortError') {
-        console.log('Fetch aborted');
-        return;
-      }
-      
-      if (error.response?.status === 401 || error.message.includes('token')) {
-        console.log('Authentication error - logging out');
-        logout();
-      } else {
-        setError({
-          overview: 'Failed to load data',
-          entitlement: 'Failed to load data',
-          previousLeaves: 'Failed to load data',
-          announcements: 'Failed to load data'
-        });
-      }
-    } finally {
-      console.log('Setting loading states to false');
-      setDataLoading({
-        overview: false,
-        entitlement: false,
-        previousLeaves: false,
-        announcements: false
-      });
-      fetchInProgress.current = false;
-    }
-  };
-
- 
-  // Improved useEffect with proper cleanup and debouncing
-  useEffect(() => {
+   // Rest of your useEffect hooks remain the same...
+   useEffect(() => {
     if (!authUser?.uid) return;
 
-    // Debounce the fetch call
     const timeoutId = setTimeout(() => {
       fetchData();
-    }, 300); // 300ms debounce
+    }, 300);
 
     return () => {
       clearTimeout(timeoutId);
@@ -533,9 +422,8 @@ const Dashboard = () => {
       }
       fetchInProgress.current = false;
     };
-  }, [authUser?.uid]); // Only depend on uid
+  }, [authUser?.uid]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (abortControllerRef.current) {
@@ -543,12 +431,149 @@ const Dashboard = () => {
       }
     };
   }, []);
-  // Manual refresh function
-  const refreshData = useCallback(async () => {
-    fetchInProgress.current = false;
-    lastFetchTime.current = 0;
-    await fetchData();
-  }, [authUser?.uid]);
+
+  useEffect(() => {
+    console.log("API Response Structure:", {
+      overview: overviewData,
+      entitlement: entitlementData,
+      previousLeaves: previousLeaves,
+      announcements: announcementsData,
+      userProfile: userProfile // Add to logging
+    });
+  }, [overviewData, entitlementData, previousLeaves, announcementsData, userProfile]);
+
+  
+
+  const fetchData = async () => {
+    if (!authUser?.uid) {
+      console.log('No authenticated user - skipping fetch');
+      return;
+    }
+  
+    try {
+      console.log('Starting data fetch for user:', authUser.uid);
+      
+      let token;
+      try {
+        if (typeof authUser.getIdToken === 'function') {
+          token = await authUser.getIdToken(true);
+        } else {
+          const currentUser = auth.currentUser;
+          if (currentUser && typeof currentUser.getIdToken === 'function') {
+            token = await currentUser.getIdToken(true);
+          } else {
+            throw new Error('Authentication token unavailable');
+          }
+        }
+      } catch (tokenError) {
+        console.error('Token retrieval error:', tokenError);
+        throw new Error('Failed to get authentication token');
+      }
+  
+      const headers = { Authorization: `Bearer ${token}` };
+  
+      setDataLoading({
+        overview: true,
+        entitlement: true,
+        previousLeaves: true,
+        announcements: true,
+        userProfile: true
+      });
+  
+      // Make API calls with individual error handling
+      const results = await Promise.allSettled([
+        apiClient.get(`/dashboard/overview/${authUser.uid}`, { headers }),
+        apiClient.get(`/dashboard/entitlement/${authUser.uid}`, { headers }),
+        apiClient.get(`/dashboard/previous-leaves/${authUser.uid}`, { headers }),
+        apiClient.get('/dashboard/announcements', { headers }),
+        apiClient.get(`/auth/me`, { headers })
+      ]);
+  
+      console.log('API results:', results);
+  
+      // Handle each result individually
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          switch (index) {
+            case 0:
+              setOverviewData(result.value.data.data || {});
+              break;
+            case 1:
+              setEntitlementData(result.value.data.data || null);
+              break;
+            case 2:
+              setPreviousLeaves(result.value.data.data || []);
+              break;
+            case 3:
+              setAnnouncementsData(result.value.data.data || []);
+              break;
+            case 4:
+              setUserProfile(result.value.data.user || null);
+              break;
+          }
+        } else {
+          console.warn(`API call ${index} failed:`, result.reason);
+          
+          // Handle specific errors
+          if (result.reason?.response?.status === 403) {
+            console.warn('403 Forbidden - User may not be properly registered in backend');
+          } else if (result.reason?.response?.status === 404) {
+            console.warn('404 Not Found - Endpoint or user data not found');
+          }
+        }
+      });
+  
+    } catch (error) {
+      console.error('Fetch error:', error);
+      if (error.response?.status === 401) {
+        console.log('Authentication failed - logging out');
+        logout();
+      }
+    } finally {
+      setDataLoading({
+        overview: false,
+        entitlement: false,
+        previousLeaves: false,
+        announcements: false,
+        userProfile: false
+      });
+    }
+  };
+
+  const fetchUserProfile = async () => {
+    if (!authUser?.uid) return;
+  
+    try {
+      let token;
+      try {
+        if (typeof authUser.getIdToken === 'function') {
+          token = await authUser.getIdToken(true);
+        } else {
+          // Fallback: Try to get token from Firebase auth current user
+          const currentUser = auth.currentUser;
+          if (currentUser && typeof currentUser.getIdToken === 'function') {
+            token = await currentUser.getIdToken(true);
+          } else {
+            throw new Error('Authentication token unavailable');
+          }
+        }
+      } catch (tokenError) {
+        console.error('Token retrieval error:', tokenError);
+        throw new Error('Failed to get authentication token');
+      }
+  
+      const headers = { Authorization: `Bearer ${token}` };
+      
+      const response = await apiClient.get(`/auth/me`, { headers });
+      setUserProfile(response.data.user);
+    } catch (error) {
+      console.error('Failed to fetch user profile:', error);
+    } finally {
+      setDataLoading(prev => ({ ...prev, userProfile: false }));
+    }
+  };
+
+  
 
   // ====== OTHER HANDLER FUNCTIONS (AFTER useEffect) ======
   
@@ -595,45 +620,173 @@ const Dashboard = () => {
       [name]: value
     }));
   };
+  const formatDate = (dateValue) => {
+    if (!dateValue) return 'N/A';
+    
+    try {
+      // Handle JavaScript Date objects
+      if (dateValue instanceof Date) {
+        return dateValue.toLocaleDateString();
+      }
+      
+      // Handle ISO strings (YYYY-MM-DD)
+      if (typeof dateValue === 'string' && dateValue.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        return new Date(dateValue).toLocaleDateString();
+      }
+      
+      // Handle your colon format (YYYY:MM:DD)
+      if (typeof dateValue === 'string' && dateValue.match(/^\d{4}:\d{2}:\d{2}$/)) {
+        const [year, month, day] = dateValue.split(':');
+        return new Date(year, month - 1, day).toLocaleDateString();
+      }
+      
+      return 'N/A';
+    } catch (error) {
+      console.error('Error formatting date:', error, dateValue);
+      return 'N/A';
+    }
+  };
 
+  const calculateDays = (startDate, endDate) => {
+    try {
+      const parseDate = (dateValue) => {
+        if (!dateValue) return null;
+        
+        // Already a Date object
+        if (dateValue instanceof Date) return dateValue;
+        
+        // Handle ISO strings
+        if (typeof dateValue === 'string' && dateValue.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          return new Date(dateValue);
+        }
+        
+        // Handle colon format
+        if (typeof dateValue === 'string' && dateValue.match(/^\d{4}:\d{2}:\d{2}$/)) {
+          const [year, month, day] = dateValue.split(':');
+          return new Date(year, month - 1, day);
+        }
+        
+        return null;
+      };
+  
+      const start = parseDate(startDate);
+      const end = parseDate(endDate);
+      
+      if (!start || !end) return 'N/A';
+      
+      const timeDiff = end - start;
+      return Math.ceil(timeDiff / (1000 * 60 * 60 * 24)) + 1;
+    } catch (error) {
+      console.error('Error calculating days:', error);
+      return 'N/A';
+    }
+  };
+  
   const handleLeaveSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
   
     try {
-      const formData = new FormData();
-      formData.append('leaveType', leaveData.leaveType);
-      formData.append('startDate', leaveData.startDate);
-      formData.append('endDate', leaveData.endDate);
-      formData.append('reason', leaveData.reason);
+      // Get fresh authentication token
+      const token = await authUser.getIdToken(true);
       
-      if (leaveData.attachments) {
-        Array.from(leaveData.attachments).forEach(file => {
-          formData.append('attachments', file);
-        });
+      // Validate dates before sending
+      const startDate = leaveData.startDate;
+      const endDate = leaveData.endDate;
+      
+      // Ensure dates are in YYYY-MM-DD format
+      const formatDateForBackend = (dateStr) => {
+        if (!dateStr) return '';
+        // If it's already in YYYY-MM-DD format, return as is
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          return dateStr;
+        }
+        // Otherwise, try to parse and format
+        const date = new Date(dateStr);
+        return date.toISOString().split('T')[0];
+      };
+  
+      const formattedStartDate = formatDateForBackend(startDate);
+      const formattedEndDate = formatDateForBackend(endDate);
+      
+      // DEBUG: Log the data being sent
+      console.log('=== FRONTEND DEBUG ===');
+      console.log('Original dates:', { startDate, endDate });
+      console.log('Formatted dates:', { formattedStartDate, formattedEndDate });
+      console.log('Leave data being sent:', {
+        leaveType: leaveData.leaveType,
+        startDate: formattedStartDate,
+        endDate: formattedEndDate,
+        reason: leaveData.reason,
+        hasAttachments: leaveData.attachments && leaveData.attachments.length > 0
+      });
+  
+      // Validate that dates are properly formatted
+      if (!formattedStartDate || !formattedEndDate) {
+        throw new Error('Invalid date format. Please select valid dates.');
+      }
+      
+      if (formattedStartDate > formattedEndDate) {
+        throw new Error('End date must be after start date.');
       }
   
-      const response = await axios.post('/dashboard/apply', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
+      // Check if we're sending FormData or JSON
+      const shouldSendFormData = leaveData.attachments && leaveData.attachments.length > 0;
+      
+      let requestData;
+      let headers = {
+        'Authorization': `Bearer ${token}`
+      };
+  
+      if (shouldSendFormData) {
+        // Send as FormData if there are attachments
+        requestData = new FormData();
+        requestData.append('leaveType', leaveData.leaveType);
+        requestData.append('startDate', formattedStartDate);
+        requestData.append('endDate', formattedEndDate);
+        requestData.append('reason', leaveData.reason);
+        
+        Array.from(leaveData.attachments).forEach(file => {
+          requestData.append('attachments', file);
+        });
+        
+        // Don't set Content-Type for FormData - let browser set it
+        console.log('Sending as FormData with attachments');
+      } else {
+        // Send as JSON if no attachments
+        requestData = {
+          leaveType: leaveData.leaveType,
+          startDate: formattedStartDate,
+          endDate: formattedEndDate,
+          reason: leaveData.reason
+        };
+        
+        headers['Content-Type'] = 'application/json';
+        console.log('Sending as JSON (no attachments)');
+      }
+  
+      console.log('Request headers:', headers);
+  
+      // Use apiClient with proper authentication
+      const response = await apiClient.post('/dashboard/apply', requestData, { headers });
   
       if (response.data.success) {
         // Calculate days difference
-        const start = new Date(leaveData.startDate);
-        const end = new Date(leaveData.endDate);
+        const start = new Date(formattedStartDate);
+        const end = new Date(formattedEndDate);
         const timeDiff = end.getTime() - start.getTime();
         const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1;
   
         // Update entitlement data
         setEntitlementData(prev => {
+          if (!prev || !prev.leaveTypes) return prev;
+          
           const updatedLeaveTypes = prev.leaveTypes.map(type => {
             if (type.name === leaveData.leaveType) {
               return {
                 ...type,
                 used: type.used + daysDiff,
-                remaining: type.total - (type.used + daysDiff)
+                remaining: Math.max(0, type.total - (type.used + daysDiff))
               };
             }
             return type;
@@ -644,6 +797,7 @@ const Dashboard = () => {
           const totalLeaves = usedLeaves + remainingLeaves;
   
           return {
+            ...prev,
             totalLeaves,
             usedLeaves,
             remainingLeaves,
@@ -657,7 +811,7 @@ const Dashboard = () => {
           startDate: '',
           endDate: '',
           reason: '',
-          attachments: null
+          attachments: []
         });
   
         const fileInput = document.getElementById('document-upload');
@@ -665,17 +819,35 @@ const Dashboard = () => {
   
         alert('Leave request submitted successfully!');
   
-        // Refresh data - REPLACED THE THREE FUNCTIONS WITH fetchData()
+        // Refresh data
         await fetchData();
       }
     } catch (error) {
       console.error('Leave submission error:', error);
-      const errorMessage = error.response?.data?.message || 'Failed to submit leave request';
+      console.error('Error response:', error.response?.data);
+      
+      // Better error handling
+      let errorMessage = 'Failed to submit leave request';
+      
+      if (error.response?.status === 401) {
+        errorMessage = 'Authentication failed. Please login again.';
+        logout();
+      } else if (error.response?.status === 404) {
+        errorMessage = 'Server endpoint not found. Please contact support.';
+      } else if (error.response?.status === 400) {
+        errorMessage = error.response.data?.error || 'Invalid request data';
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       alert(errorMessage);
     } finally {
       setIsSubmitting(false);
     }
   };
+
   // Loading check - FIXED
   const isLoading = Object.values(dataLoading).some(loading => loading === true);
   
@@ -698,6 +870,16 @@ const Dashboard = () => {
   const approvalRate = overviewData?.total > 0 
   ? Math.round((overviewData.approved / overviewData.total) * 100) 
   : 0;
+
+  console.log("Previous leaves data:", previousLeaves.map(leave => ({
+    id: leave.id,
+    type: leave.leaveType,
+    startDate: leave.startDate,
+    endDate: leave.endDate,
+    startDateType: typeof leave.startDate,
+    endDateType: typeof leave.endDate
+  })));
+ 
 
 return (
   <div className="dashboard-container">
@@ -848,8 +1030,16 @@ return (
               <FontAwesomeIcon icon={faSpinner} spin />
               <p>Loading leave balances...</p>
             </div>
+          ) : entitlementData ? (
+            <LeavesRemaining 
+              total={entitlementData.total || 0}
+              used={entitlementData.used || 0}
+              remaining={entitlementData.remaining || 0}
+            />
           ) : (
-            <LeavesRemaining userData={entitlementData} />
+            <div className="no-entitlement-data">
+              <p>No leave entitlement data available</p>
+            </div>
           )}
         </div>
 
@@ -1023,51 +1213,61 @@ return (
                 </form>
               </div>
               
-              {/* Previous Leaves Table */}
-              <div className="previous-leaves-section">
-                {dataLoading.previousLeaves ? (
-                  <div className="loading-section">
-                    <FontAwesomeIcon icon={faSpinner} spin />
-                    <p>Loading leave history...</p>
-                  </div>
-                ) : (
-                  <div className="leaves-table-container">
-                    <div className="leaves-table">
-                      <div className="table-header">
-                        <div>Type</div>
-                        <div>Start Date</div>
-                        <div>End Date</div>
-                        <div>Days</div>
-                        <div>Status</div>
-                      </div>
+             {/* Previous Leaves Table */}
+            <div className="previous-leaves-section">
+              {dataLoading.previousLeaves ? (
+                <div className="loading-section">
+                  <FontAwesomeIcon icon={faSpinner} spin />
+                  <p>Loading leave history...</p>
+                </div>
+              ) : (
+                <div className="leaves-table-container">
+                  <div className="leaves-table">
+                    <div className="table-header">
+                      <div>Type</div>
+                      <div>Start Date</div>
+                      <div>End Date</div>
+                      <div>Days</div>
+                      <div>Status</div>
+                    </div>                   
+                    {previousLeaves.length > 0 ? (
+                    previousLeaves.map((leave) => {
+                      // Use raw data if main fields are missing
+                      const effectiveData = leave._raw || leave;
                       
-                      {previousLeaves.length > 0 ? (
-                        previousLeaves.map(leave => (
-                          <div key={leave.id} className="table-row" onClick={() => navigate(`/leave/${leave.id}`)}>
-                            <div>{leave.leaveType}</div>
-                            <div>{new Date(leave.startDate).toLocaleDateString()}</div>
-                            <div>{new Date(leave.endDate).toLocaleDateString()}</div>
-                            <div>{leave.leaveDays}</div>
-                            <div className={`status ${leave.status.toLowerCase()}`}>
-                              {leave.status}
-                              {leave.status === 'rejected' && leave.rejectionReason && (
-                                <div className="rejection-tooltip">
-                                  {leave.rejectionReason}
-                                </div>
-                              )}
-                            </div>
+                      const startDate = effectiveData.startDate;
+                      const endDate = effectiveData.endDate;
+                      const leaveType = effectiveData.leaveType || effectiveData.type || 'N/A';
+                      const status = effectiveData.status?.toLowerCase() || 'pending';
+                      const days = effectiveData.leaveDays || calculateDays(startDate, endDate);
+
+                      return (
+                        <div key={leave.id} className="table-row">
+                          <div>{leaveType}</div>
+                          <div>{formatDate(startDate)}</div>
+                          <div>{formatDate(endDate)}</div>
+                          <div>{days}</div>
+                          <div className={`status ${status}`}>
+                            {status.charAt(0).toUpperCase() + status.slice(1)}
+                            {status === 'rejected' && effectiveData.rejectionReason && (
+                              <div className="rejection-tooltip">
+                                {effectiveData.rejectionReason}
+                              </div>
+                            )}
                           </div>
-                        ))
-                      ) : (
-                        <div className="no-leaves">
-                          <FontAwesomeIcon icon={faFileAlt} />
-                          <p>No previous leave requests found</p>
                         </div>
-                      )}
+                      );
+                    })
+                  ) : (
+                    <div className="no-leaves">
+                      <FontAwesomeIcon icon={faFileAlt} />
+                      <p>No previous leave requests found</p>
                     </div>
+                  )}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
+            </div>
             </div>
           </div>
         </div>

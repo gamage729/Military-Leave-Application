@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import '../styles/ChatBot.css';
 import axios from 'axios';
 import Sidebar from './Sidebar';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 const militaryAssistantStyles = {
   militaryLeaveCard: {
@@ -63,6 +63,7 @@ const militaryAssistantStyles = {
 };
 
 const ChatBot = () => {
+  const navigate = useNavigate(); // Add this hook for programmatic navigation
   
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
@@ -80,6 +81,13 @@ const ChatBot = () => {
     "Check leave types",
     "Report sick leave"
   ];
+
+  // Handle navigation to AI assistant
+  const handleAIAssistantClick = (e) => {
+    e.preventDefault();
+    console.log('Navigating to LeaveRequestAI...');
+    navigate('/leave-request-ai');
+  };
 
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -529,11 +537,11 @@ const ChatBot = () => {
         </form>
       </div>
       
-      {/* Military Leave AI Assistant - Minimalist floating icon with tooltip */}
+      {/* Military Leave AI Assistant - Updated with click handler */}
       {showAIHelp && (
-        <Link 
-          to="/leave-request-ai" 
+        <div 
           style={militaryAssistantStyles.militaryLeaveCard}
+          onClick={handleAIAssistantClick}
           onMouseEnter={(e) => {
             const tooltip = e.currentTarget.querySelector('.ai-tooltip');
             if (tooltip) {
@@ -563,7 +571,7 @@ const ChatBot = () => {
               Get specialized assistance with military leave requests and regulations.
             </p>
           </div>
-        </Link>
+        </div>
       )}
     </div>
   );
