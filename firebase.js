@@ -37,5 +37,6 @@ testConnections();
 module.exports = {
   db,  // Firestore instance
   auth: admin.auth(),
-  admin
+  admin,
+  storage
 };

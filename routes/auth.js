@@ -115,7 +115,9 @@ router.post('/register', verifyToken, async (req, res) => {
       dateOfBirth,
       ...otherData // Include any other data from the frontend
     } = req.body;
-    
+    // Check if user is trying to register as admin
+    const isAdminRegistration = email.endsWith('@military.gov') || role === 'admin';
+
     // Use regNumber or soldierId (they should be the same)
     const soldierNumber = regNumber || soldierId;
     
@@ -166,6 +168,7 @@ router.post('/register', verifyToken, async (req, res) => {
       soldierId: soldierNumber, // Keep both for compatibility
       email,
       name,
+      role: isAdminRegistration ? 'admin' : 'soldier',
       firstName: firstName || name.split(' ')[0] || name,
       lastName: lastName || name.split(' ').slice(1).join(' ') || '',
       rank: rank || existingSoldierData.rank || 'Private',
@@ -185,6 +188,17 @@ router.post('/register', verifyToken, async (req, res) => {
         compassionate: { total: 7, used: 0, remaining: 7 }
       }
     };
+    // Save to Firestore
+    await db.collection('users').doc(uid).set(userData);
+    // Set admin claims if needed
+    if (isAdminRegistration) {
+      try {
+        await admin.auth().setCustomUserClaims(uid, { admin: true });
+      } catch (claimsError) {
+        console.error('Failed to set admin claims:', claimsError);
+        // Continue even if claims fail - we'll fall back to Firestore role
+      }
+    }
 
     // Prepare updated soldier data
     const updatedSoldierData = {
@@ -406,6 +420,50 @@ router.post("/logout", verifyToken, (req, res) => {
     message: "Logout successful (client should delete token)" 
   });
 });
+// POST: Set admin claims
+router.post('/set-admin', verifyToken, async (req, res) => {
+  try {
+    // Only allow existing admins to set admin privileges
+    if (!req.user.role || (req.user.role !== 'admin' && !req.user.email.endsWith('@military.gov'))) {
+      return res.status(403).json({
+        success: false,
+        error: 'Permission denied',
+        message: 'Only admins can set admin privileges'
+      });
+    }
+
+    const { uid } = req.body;
+    if (!uid) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID (uid) is required'
+      });
+    }
+
+    // Set custom claims
+    await admin.auth().setCustomUserClaims(uid, { admin: true });
+
+    // Update Firestore user document
+    await db.collection('users').doc(uid).update({
+      role: 'admin',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    res.json({
+      success: true,
+      message: 'Admin privileges granted successfully'
+    });
+  } catch (error) {
+    console.error('Error setting admin claims:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to set admin privileges',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+
 
 // GET: Get current user info - FIXED: Changed from app.get to router.get
 // Update your /auth/me endpoint
@@ -422,10 +480,25 @@ router.get('/me', verifyToken, async (req, res) => {
       });
     }
 
+    const userData = userDoc.data();
+    
+    // Include custom claims if available
+    let customClaims = {};
+    try {
+      const userRecord = await admin.auth().getUser(req.user.uid);
+      customClaims = userRecord.customClaims || {};
+    } catch (authError) {
+      console.error('Error fetching custom claims:', authError);
+    }
+
     return res.json({
       success: true,
       exists: true,
-      user: userDoc.data()
+      user: {
+        ...userData,
+        ...customClaims,
+        uid: req.user.uid
+      }
     });
     
   } catch (error) {
@@ -436,5 +509,4 @@ router.get('/me', verifyToken, async (req, res) => {
     });
   }
 });
-
 module.exports = router;
