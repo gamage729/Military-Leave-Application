@@ -230,7 +230,7 @@ const Register = () => {
               disabled={loading}
             >
               <option value="soldier">Soldier</option>
-              <option value="officer">Officer</option>
+              <option value="admin">Officer</option>
             </select>
           </div>
 

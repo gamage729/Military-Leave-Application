@@ -7,6 +7,7 @@ import Dashboard from "./components/Dashboard";
 import News from "./components/News";
 import ChatBot from "./components/ChatBot";
 import LeaveRequestAI from "./components/LeaveRequestAI";
+import AdminPanel from './components/AdminPanel';
 
 function App() {
   const { user, loading, registrationComplete } = useAuth();
@@ -36,6 +37,7 @@ function App() {
           path="/register" 
           element={<Register />}  // No conditions - always show register page
         />
+        <Route path="/admin" element={<AdminPanel />} />
         
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/news" element={<News />} />
